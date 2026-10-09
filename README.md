@@ -75,43 +75,58 @@ Inside Claude Code:
 
 ```text
 /plugin marketplace add NMenzel/claude-devtools-mod
-/plugin install agent-devtools@claude-devtools-mod
+/plugin install devtools@claude-devtools-mod
 /reload-plugins
 /devtools
 ```
 
-<details>
-<summary><strong>From the terminal, or from a clone</strong></summary>
+Or from a terminal, in one command (it adds the marketplace too):
 
 ```sh
-claude plugin marketplace add NMenzel/claude-devtools-mod
-claude plugin install agent-devtools@claude-devtools-mod
+claude plugin install devtools --marketplace NMenzel/claude-devtools-mod
 ```
 
-Or load it straight from a clone, for one session:
-
-```sh
-git clone https://github.com/NMenzel/claude-devtools-mod
-claude --plugin-dir ./claude-devtools-mod
-```
-
-</details>
+Then run `/reload-plugins` in an open session, or start a new one, and run `/devtools`.
 
 The installer may say config options aren't set. The defaults are fine, and
 [`/config`](#options) changes them. Mods are an early-access Claude Code
 feature, and their API can change between releases.
 
-On Windows with Git Bash, pass a native path (`C:/Users/you/claude-devtools-mod`).
-When you type a slash command as a `claude -p` prompt in Git Bash, set
-`MSYS_NO_PATHCONV=1` first. Otherwise Git Bash rewrites `/devtools-status`
-into a Windows path.
-
-To load it in every session without the flag, add the folder to
-`CLAUDE_CODE_PLUGIN_DIRS` in the `env` block of `~/.claude/settings.json`.
-Use an absolute path, and separate several with `;` on Windows or `:` elsewhere.
-
-Check that it loaded: run `/plugin` and look for `agent-devtools` in the
+Check that it loaded: run `/plugin` and look for `devtools` in the
 `mods active` line. You can also run `/devtools-help`.
+
+To update: `claude plugin update devtools@claude-devtools-mod`.
+To remove: `claude plugin uninstall devtools@claude-devtools-mod`.
+
+### Install with an AI agent
+
+Paste this into Claude Code, or any coding agent that can run shell commands:
+
+```text
+Install the Claude DevTools mod for Claude Code from
+https://github.com/NMenzel/claude-devtools-mod. Follow the
+"Instructions for agents" in its README, then tell me what to run next.
+```
+
+#### Instructions for agents
+
+If you are an AI agent installing Claude DevTools for a user, follow these steps.
+
+1. **Check the version.** Run `claude --version`. Claude Code 2.1.287 or later supports mods, and Claude DevTools is tested on 2.1.294. If the version is older, stop and tell the user to update Claude Code (`claude update`).
+2. **Install, without prompts:**
+   ```sh
+   claude plugin install devtools --marketplace NMenzel/claude-devtools-mod --json
+   ```
+   This adds the marketplace to the user's settings and installs at user scope. Exit code 0 means it is installed. To share it with everyone working in the current repository, add `--scope project` (it is then recorded in `.claude/settings.json`). Ask the user before using a scope other than the default.
+3. **Options are optional.** The defaults suit most users. Set an option only if the user asked for it, with `--config <option>=<value>` on the install command. Examples: `--config errorLens=classify` (no file checks), `--config openOnStart=false`. All options are listed under [Options](#options).
+4. **Verify:** `claude plugin list --json` includes `devtools@claude-devtools-mod`.
+5. **Hand over to the user.** An agent cannot activate a mod inside the user's running session. Tell the user to run `/reload-plugins`, then `/devtools`. A newly started session loads the mod by itself.
+
+Notes for agents:
+
+- Nothing needs to be built, and it needs no npm packages, global installs or `sudo`. Do not clone the repository to install it.
+- The mod makes no network or model calls, and it never approves a tool call. It does not change the user's permission settings.
+- To test it headlessly: `claude -p "/devtools-help"` prints the help without a model call. In Git Bash on Windows, prefix `MSYS_NO_PATHCONV=1` so the shell does not turn `/devtools-help` into a path.
 
 ## Use it
 
@@ -150,7 +165,7 @@ The Inspector has the same `break on` buttons for any recorded call, on keys `1`
 
 ### The dashboard
 
-`/devtools` opens the dashboard, a flightdeck-style pane. It also opens by
+`/devtools` opens the dashboard, a live pane of bordered panels. It also opens by
 itself when an interactive session starts in a terminal at least 144 columns
 wide (set `openOnStart` to false to stop that).
 
@@ -271,8 +286,7 @@ nothing run normally. To record such calls and let them through instead, set
 
 ## Options
 
-Set them in `/config`, or under `pluginConfigs["agent-devtools@inline"].options`
-in `~/.claude/settings.json` for a `--plugin-dir` load:
+Set them in `/config`, or at install time with `claude plugin install ... --config <option>=<value>`:
 
 | Option | Default | Meaning |
 | - | - | - |
@@ -306,12 +320,6 @@ folder. To lay it without starting an interactive session, run once:
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/API-COMPATIBILITY.md](docs/API-COMPATIBILITY.md),
 [docs/SECURITY.md](docs/SECURITY.md) and [docs/LIMITATIONS.md](docs/LIMITATIONS.md).
 [CONTRIBUTING.md](CONTRIBUTING.md) has the ground rules; changes are listed in [CHANGELOG.md](CHANGELOG.md).
-
-## Related projects
-
-- [Flightdeck](https://github.com/scasella/claude-flightdeck): a live agent dashboard for Claude Code. DevTools' dashboard follows its panel style. Use both: Flightdeck watches the agents, DevTools stops and explains their tool calls.
-- [claude-devtools](https://github.com/matt1398/claude-devtools): a different project with a similar name, a visual app for Claude Code session logs.
-- [awesome-claude-code-mods](https://github.com/karanb192/awesome-claude-code-mods): the index of Claude Code mods.
 
 ## License
 

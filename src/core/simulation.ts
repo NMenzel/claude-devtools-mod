@@ -30,7 +30,7 @@ export type SimulationCheck = { ok: true; kind: SimulationKind; text?: string } 
  * deployment or other consequential operation.
  */
 export function checkSimulation(isEnabled: boolean, bp: Breakpoint | undefined, call: NormalizedCall): SimulationCheck {
-  if (!isEnabled) return { ok: false, reason: 'simulation is off (agent-devtools option "simulation")' }
+  if (!isEnabled) return { ok: false, reason: 'simulation is off (devtools option "simulation")' }
   const kind = bp?.simulate?.kind ?? 'fail'
   if (!SIMULATION_TOOLS.includes(call.tool) && !call.tool.startsWith('mcp__')) {
     return { ok: false, reason: `${call.tool} is not on the simulation allowlist` }

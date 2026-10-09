@@ -87,15 +87,15 @@ const PANE = 'devtools'
 // The $.state values kept for the session (declared in ../types/index.d.ts):
 // host-held, so they survive a hot reload of this module. Settings have no
 // static initial: never written means "load from the store first".
-const SETTINGS = { plugin: 'agent-devtools', key: 'settings' } as const
-const ARM = { plugin: 'agent-devtools', key: 'arm' } as const
-const ARM_ATOM = atom({ plugin: 'agent-devtools', key: 'arm' } as const, DISARMED)
-const TRACE = atom({ plugin: 'agent-devtools', key: 'trace' } as const, [])
-const PENDING = atom({ plugin: 'agent-devtools', key: 'pending' } as const, [])
-const HITS = atom({ plugin: 'agent-devtools', key: 'hits' } as const, {})
-const VIEW = atom({ plugin: 'agent-devtools', key: 'view' } as const, { tab: 'dashboard', page: 0 })
-const SESSION = atom({ plugin: 'agent-devtools', key: 'session' } as const, { sessionId: '', isInteractive: true, cwd: '', surface: null })
-const STATS = atom({ plugin: 'agent-devtools', key: 'stats' } as const, {
+const SETTINGS = { plugin: 'devtools', key: 'settings' } as const
+const ARM = { plugin: 'devtools', key: 'arm' } as const
+const ARM_ATOM = atom({ plugin: 'devtools', key: 'arm' } as const, DISARMED)
+const TRACE = atom({ plugin: 'devtools', key: 'trace' } as const, [])
+const PENDING = atom({ plugin: 'devtools', key: 'pending' } as const, [])
+const HITS = atom({ plugin: 'devtools', key: 'hits' } as const, {})
+const VIEW = atom({ plugin: 'devtools', key: 'view' } as const, { tab: 'dashboard', page: 0 })
+const SESSION = atom({ plugin: 'devtools', key: 'session' } as const, { sessionId: '', isInteractive: true, cwd: '', surface: null })
+const STATS = atom({ plugin: 'devtools', key: 'stats' } as const, {
   observed: 0,
   completed: 0,
   failed: 0,
@@ -103,8 +103,8 @@ const STATS = atom({ plugin: 'agent-devtools', key: 'stats' } as const, {
   simulated: 0,
   paused: 0,
 })
-const LENS = atom({ plugin: 'agent-devtools', key: 'lens' } as const, [])
-const GROUPS = atom({ plugin: 'agent-devtools', key: 'errorGroups' } as const, [])
+const LENS = atom({ plugin: 'devtools', key: 'lens' } as const, [])
+const GROUPS = atom({ plugin: 'devtools', key: 'errorGroups' } as const, [])
 
 type Dollar = EngineInterface
 type ToolResult = { deny: string } | { result: unknown }
@@ -137,7 +137,7 @@ function redactIf(text: string): string {
 }
 
 function debug($: Dollar, text: string): void {
-  $.ui.log(`agent-devtools: ${text}`, { to: 'debug' })
+  $.ui.log(`devtools: ${text}`, { to: 'debug' })
 }
 
 // ------------------------------------------------------------------ settings
@@ -383,11 +383,11 @@ async function hold(
   try {
     if (!isInteractive) {
       if (options.headlessPause === 'record-only') {
-        $.ui.log(`agent-devtools: ${reason} matched ${call.tool} in a headless session; recorded and let through (headlessPause=record-only).`)
+        $.ui.log(`devtools: ${reason} matched ${call.tool} in a headless session; recorded and let through (headlessPause=record-only).`)
         return { decision: 'continue' }
       }
       const deny = refusalText('headless', call.tool, reason)
-      $.ui.log(`agent-devtools: ${deny}`)
+      $.ui.log(`devtools: ${deny}`)
       return await refuse($, event, 'denied', 'headless-rejected', deny)
     }
     const permission = await previewPermission($, call)
@@ -594,7 +594,7 @@ async function clearErrors($: Dollar): Promise<void> {
 }
 
 async function errorsText($: Dollar): Promise<string> {
-  if (options.errorLens === 'off') return 'Error Lens is off (the agent-devtools option errorLens).'
+  if (options.errorLens === 'off') return 'Error Lens is off (the devtools option errorLens).'
   const [lens, groups] = await Promise.all([read($, LENS), read($, GROUPS)])
   const latest = lens.at(-1)
   if (latest === undefined) return 'Error Lens: no failed tool calls this session.'

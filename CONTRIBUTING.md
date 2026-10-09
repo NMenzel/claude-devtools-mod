@@ -33,4 +33,4 @@ interactive session, run `claude -p --plugin-dir . "/devtools-help"` once.
 - **No secrets, no contents.** Everything stored from a tool call goes through the redaction in `src/security/redaction.ts`, and file contents are omitted unless `captureRaw` is on.
 - **Narrow panes.** Check a drawing change at 40, 80 and 130 columns, and on the mobile element table.
 
-When you report a bug, include `claude --version` and any `agent-devtools:` line from `claude --debug`.
+When you report a bug, include `claude --version` and any `devtools:` line from `claude --debug`.

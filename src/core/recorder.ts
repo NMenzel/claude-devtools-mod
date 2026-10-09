@@ -67,7 +67,7 @@ export function buildExport(args: {
   return {
     schema: TRACE_SCHEMA,
     schemaVersion: TRACE_SCHEMA_VERSION,
-    generator: { name: 'agent-devtools', version: args.version },
+    generator: { name: 'devtools', version: args.version },
     exportedAt: args.exportedAt,
     sessionId: args.sessionId,
     redaction: args.redaction,

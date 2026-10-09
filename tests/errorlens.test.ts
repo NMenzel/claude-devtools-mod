@@ -11,7 +11,7 @@ import { dialog, engineDraws, start, tools, world, type World } from './kit.ts'
 const T0 = Date.UTC(2026, 9, 8, 12, 0, 0)
 
 const PANE = {
-  plugin: 'agent-devtools',
+  plugin: 'devtools',
   component: 'Pane',
   requestId: 'devtools',
   viewport: { columns: 140, rows: 40, isFullscreen: true },
@@ -19,7 +19,7 @@ const PANE = {
 } as const
 
 const BAND = {
-  plugin: 'agent-devtools',
+  plugin: 'devtools',
   component: 'AbovePrompt',
   viewport: { columns: 140, rows: 40, isFullscreen: true },
   props: { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 120, scroll: { offset: 0, bodyRows: 6 }, view: {} },

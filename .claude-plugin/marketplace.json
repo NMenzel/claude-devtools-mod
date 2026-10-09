@@ -9,7 +9,7 @@
   },
   "plugins": [
     {
-      "name": "agent-devtools",
+      "name": "devtools",
       "source": "./",
       "description": "Breakpoints on tools, commands, paths and errors; a pause dialog; a timeline, inspector and Error Lens for Claude Code tool calls."
     }

@@ -110,7 +110,7 @@ export function refusalText(kind: RefusalKind, tool: string, reason: string, not
     case 'cancelled':
       return `Claude DevTools: this ${tool} call was held at ${reason} and the question was dismissed, so it did not run. Ask the user how to proceed before retrying it.`
     case 'headless':
-      return `Claude DevTools: ${reason} requires an interactive decision, but this session has nobody to ask (headless), so the ${tool} call did not run. To let such calls through in headless runs, set the agent-devtools option headlessPause to "record-only" or disable the breakpoint.`
+      return `Claude DevTools: ${reason} requires an interactive decision, but this session has nobody to ask (headless), so the ${tool} call did not run. To let such calls through in headless runs, set the devtools option headlessPause to "record-only" or disable the breakpoint.`
     case 'aborted':
       return `Claude DevTools: the turn was interrupted while this ${tool} call was paused at ${reason}; it did not run.`
     case 'guard':

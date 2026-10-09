@@ -336,11 +336,11 @@ export function diagnose(input: DiagnoseInput): Diagnosis {
       return done('debugger')
     case 'headless-rejected':
       out.causes.push(cause('confirmed', 'A Claude DevTools pause breakpoint matched in a headless session, where nobody can answer, so the call was refused.', [quoted]))
-      out.fixes.push('Set the agent-devtools option headlessPause to "record-only", or disable the breakpoint for headless runs.')
+      out.fixes.push('Set the devtools option headlessPause to "record-only", or disable the breakpoint for headless runs.')
       return done('debugger')
     case 'guard-failed':
       out.causes.push(cause('confirmed', "Claude DevTools' own breakpoint guard failed, so it refused the call to keep the breakpoint's promise.", [quoted]))
-      out.fixes.push('Retry; if it repeats, run claude --debug and look for agent-devtools lines.')
+      out.fixes.push('Retry; if it repeats, run claude --debug and look for devtools lines.')
       return done('debugger')
     case 'simulated':
       out.causes.push(cause('confirmed', 'Claude DevTools answered with a simulated failure; the real tool never ran.', [quoted]))

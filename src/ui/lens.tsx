@@ -36,7 +36,7 @@ export function lensTitle(record: LensRecord): string {
 
 export function errorsView(els: Table, m: PaneModel, act: PaneActions, width: number): RenderElement {
   const { Box, Text, Button, Code } = els
-  if (m.options.errorLens === 'off') return <Text dimColor>Error Lens is off (the agent-devtools option errorLens).</Text>
+  if (m.options.errorLens === 'off') return <Text dimColor>Error Lens is off (the devtools option errorLens).</Text>
   const record = selectedLens(m)
   if (record === undefined) return <Text dimColor>No failed tool calls yet. A failure appears here with its probable cause and evidence.</Text>
   const index = m.lens.indexOf(record)

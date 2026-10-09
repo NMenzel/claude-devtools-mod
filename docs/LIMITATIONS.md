@@ -40,7 +40,7 @@ hover gutter and the bar in a live terminal or in Claude Desktop. Those paths
 are covered only by the test kit (the real hooks, `$.ui.ask` answered by a
 stub, and trees validated against each surface's element table, which caught
 one invalid hover tree that has since been fixed). How they look is not
-tested. Try it with `claude --plugin-dir ./agent-devtools`.
+tested. Try it after installing it (see the README).
 
 ## Limitations
 

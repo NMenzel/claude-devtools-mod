@@ -1,5 +1,5 @@
 {
-  "name": "agent-devtools",
+  "name": "devtools",
   "displayName": "Claude DevTools",
   "version": "0.1.0",
   "description": "A debugger for Claude Code tool calls: breakpoints, pause/continue/reject/step, a timeline, an inspector, Error Lens failure diagnosis and sanitized trace exports.",

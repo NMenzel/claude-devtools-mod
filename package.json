@@ -1,5 +1,5 @@
 {
-  "name": "agent-devtools",
+  "name": "devtools",
   "version": "0.1.0",
   "private": true,
   "description": "Claude DevTools: a Claude Code Mod that debugs agent tool calls.",

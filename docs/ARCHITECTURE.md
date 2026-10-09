@@ -4,7 +4,7 @@ Claude DevTools has two layers: a pure TypeScript engine with no Claude Code
 dependency, and a thin native Mod layer that runs the engine's decisions.
 
 ```text
-agent-devtools/
+claude-devtools-mod/
 ├── .claude-plugin/plugin.json   manifest, userConfig options, "types" contract
 ├── hooks/hooks.json             { "modules": ["./register.tsx"] }
 ├── hooks/register.tsx           native layer: every hook, command and $ call
@@ -20,7 +20,7 @@ agent-devtools/
 ├── src/config/schema.ts         option validation, persisted settings
 ├── src/ui/pane.tsx              header, legend, tabs: Timeline, Inspector, Breakpoints
 ├── src/ui/lens.tsx              the Errors tab (Error Lens)
-├── src/ui/dashboard.tsx         the flightdeck-style dashboard (wide / compact / mini)
+├── src/ui/dashboard.tsx         the dashboard (wide / compact / mini)
 ├── src/ui/inline.tsx            transcript gutter and the bar above the prompt
 ├── src/ui/model.ts, theme.ts    the view model, actions, theme-key colors
 └── tests/                       *.test.ts run by `claude plugin test`

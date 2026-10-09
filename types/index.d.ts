@@ -1,4 +1,4 @@
-// Claude DevTools (agent-devtools): the plugin's type contract.
+// Claude DevTools (devtools): the plugin's type contract.
 // Every value the mod keeps in $.state is declared here, and the pure engine
 // under src/ imports its data types from this file, so they are written once.
 
@@ -258,7 +258,7 @@ export type DevtoolsStats = {
 
 declare module 'claude-code' {
   interface PluginState {
-    'agent-devtools': {
+    'devtools': {
       settings: DevtoolsSettings
       /** Hit counts by breakpoint id, kept apart so a hit never redraws what reads only the rules. */
       hits: Record<string, number>

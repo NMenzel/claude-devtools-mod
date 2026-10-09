@@ -7,7 +7,7 @@ import { describe, type Engine, expect, test } from 'claude-code/testing'
 import { dialog, engineDraws, start, tools, world } from './kit.ts'
 
 const PANE = {
-  plugin: 'agent-devtools',
+  plugin: 'devtools',
   component: 'Pane',
   requestId: 'devtools',
   viewport: { columns: 140, rows: 40, isFullscreen: true },
@@ -25,7 +25,7 @@ const WIDE = { ...PANE, props: { ...PANE.props, bodyColumns: 130, scroll: { offs
 
 function toolRow(tool: string, input: Record<string, unknown>) {
   return {
-    plugin: 'agent-devtools',
+    plugin: 'devtools',
     component: 'ToolUse',
     requestId: 'toolu_row',
     viewport: { columns: 140, rows: 40, isFullscreen: true },
@@ -34,7 +34,7 @@ function toolRow(tool: string, input: Record<string, unknown>) {
 }
 
 const BAND = {
-  plugin: 'agent-devtools',
+  plugin: 'devtools',
   component: 'AbovePrompt',
   viewport: { columns: 140, rows: 40, isFullscreen: true },
   props: { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 120, scroll: { offset: 0, bodyRows: 6 }, view: {} },
@@ -45,7 +45,7 @@ async function run($: Engine, command: string, args = ''): Promise<string> {
 }
 
 describe('the DevTools dashboard', () => {
-  test('a flightdeck-style dashboard: header, legend, breakpoints, calls and timeline panels', async ($, on) => {
+  test('the dashboard: header, legend, breakpoints, calls and timeline panels', async ($, on) => {
     world(on)
     tools(on, e => (e.command === 'npm test' ? { isError: true, result: 'x', text: 'Exit code 1' } : undefined))
     dialog(on, [])
@@ -265,7 +265,7 @@ describe('breakpoints from the transcript', () => {
     dialog(on, [])
     await start($)
     const group = {
-      plugin: 'agent-devtools',
+      plugin: 'devtools',
       component: 'ToolGroup',
       requestId: 'group',
       viewport: { columns: 140, rows: 40, isFullscreen: true },
