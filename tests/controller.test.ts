@@ -145,6 +145,10 @@ describe('risk and simulation', () => {
     expect(classifyRisk('Bash', 'git push --force origin main')).toBe('destructive')
     expect(classifyRisk('Bash', 'npx prisma migrate deploy')).toBe('destructive')
     expect(classifyRisk('Bash', 'npm install lodash')).toBe('network')
+    for (const command of ['curl -I example.invalid', 'wget -q x', 'ssh host', 'nc -z h 80', 'iwr x', 'Invoke-WebRequest x', 'git clone x', 'pnpm add y', 'pip3 install z', 'cargo add w', 'go get v', 'docker pull u']) {
+      expect(classifyRisk('Bash', command)).toBe('network')
+    }
+    for (const command of ['ncdu', 'curly', 'npm run build', 'git commit -m x']) expect(classifyRisk('Bash', command)).toBe('exec')
     expect(classifyRisk('Write')).toBe('write')
     expect(classifyRisk('Read')).toBe('read')
     expect(classifyRisk('mcp__x__y')).toBe('unknown')

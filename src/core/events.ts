@@ -106,8 +106,27 @@ const DESTRUCTIVE_COMMAND = new RegExp(
   'i',
 )
 
-const NETWORK_COMMAND =
-  /\b(curl|wget|ssh|scp|rsync|ftp|nc|Invoke-WebRequest|iwr|git\s+(push|pull|fetch|clone)|(npm|pnpm|yarn|bun)\s+(install|add|i|ci)|pip3?\s+install|cargo\s+(install|add)|go\s+get|docker\s+(pull|push))\b/i
+// One program (or program and subcommands) per entry, as DESTRUCTIVE_COMMAND lists them.
+const NETWORK_COMMAND = new RegExp(
+  String.raw`\b(${[
+    'curl',
+    'wget',
+    'ssh',
+    'scp',
+    'rsync',
+    'ftp',
+    'nc',
+    'Invoke-WebRequest',
+    'iwr',
+    String.raw`git\s+(push|pull|fetch|clone)`,
+    String.raw`(npm|pnpm|yarn|bun)\s+(install|add|i|ci)`,
+    String.raw`pip3?\s+install`,
+    String.raw`cargo\s+(install|add)`,
+    String.raw`go\s+get`,
+    String.raw`docker\s+(pull|push)`,
+  ].join('|')})\b`,
+  'i',
+)
 
 const READ_ONLY_COMMAND =
   /^\s*(ls|dir|pwd|cat|head|tail|less|wc|echo|which|where|type|file|stat|du|df|tree|grep|rg|find|git\s+(status|diff|log|show|branch|rev-parse|remote\s+-v|blame)|node\s+(-v|--version)|npm\s+(ls|list|view|-v|--version)|Get-ChildItem|Get-Content|Get-Location)\b/i

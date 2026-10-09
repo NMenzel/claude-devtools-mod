@@ -106,12 +106,23 @@ describe('exports', () => {
   })
 
   test('export paths are validated', () => {
-    expect(exportPaths(undefined, '/work', 'STAMP', false)).toEqual({ ok: true, json: '/work/.claude-devtools/trace-STAMP.json' })
-    expect(exportPaths('out/t.md', 'C:\\repo\\', 'S', false)).toEqual({ ok: true, json: 'C:\\repo/out/t.json', markdown: 'C:\\repo/out/t.md' })
-    expect(exportPaths('t.json', '/w', 'S', true)).toEqual({ ok: true, json: '/w/t.json', markdown: '/w/t.md' })
+    expect(exportPaths(undefined, '/work', 'STAMP', false)).toEqual({ ok: true, json: '/work/.claude-devtools/trace-STAMP.json', mayReplace: true })
+    expect(exportPaths('out/t.md', 'C:\\repo\\', 'S', false)).toEqual({ ok: true, json: 'C:\\repo/out/t.json', markdown: 'C:\\repo/out/t.md', mayReplace: false })
+    expect(exportPaths('t.json', '/w', 'S', true)).toEqual({ ok: true, json: '/w/t.json', markdown: '/w/t.md', mayReplace: false })
+    expect(exportPaths('./.claude-devtools/run.json', '/w', 'S', false)).toEqual({ ok: true, json: '/w/./.claude-devtools/run.json', mayReplace: true })
+    expect(exportPaths('/tmp/.claude-devtools/t.json', '/w', 'S', false)).toMatchObject({ ok: true, mayReplace: false })
     expect(exportPaths('../escape.json', '/w', 'S', false).ok).toBe(false)
     expect(exportPaths('trace.txt', '/w', 'S', false).ok).toBe(false)
     expect(exportPaths('a\u0007.json', '/w', 'S', false).ok).toBe(false)
+  })
+
+  test('an export never names a settings, tool configuration or instructions file', () => {
+    for (const target of ['.claude/settings.json', '.mcp.json', '.vscode/settings.json', 'C:\\Users\\me\\.claude\\settings.json', 'CLAUDE.md', 'docs/agents.md', 'CLAUDE.local.md']) {
+      expect(exportPaths(target, '/w', 'S', false).ok).toBe(false)
+    }
+    // --md beside a .json writes the .md sibling too.
+    expect(exportPaths('CLAUDE.json', '/w', 'S', true).ok).toBe(false)
+    expect(exportPaths('CLAUDE.json', '/w', 'S', false).ok).toBe(true)
   })
 })
 

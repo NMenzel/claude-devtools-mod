@@ -2,7 +2,7 @@
 
 ## Verified
 
-Every line below is covered by `claude plugin test .`. That suite has 146
+Every line below is covered by `claude plugin test .`. That suite has 148
 tests: 80 on the pure engine, and 66 that load the mod into the engine's own
 test host and drive its real hooks.
 

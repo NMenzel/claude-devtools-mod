@@ -475,5 +475,13 @@ describe('commands as the text interface', () => {
     expect(paths.some(path => /out[\\/]trace\.md$/.test(path))).toBe(true)
     expect(await run($, 'devtools-export', '../../etc/x.json')).toContain('Export refused')
     expect(await run($, 'devtools-export', 'trace.exe')).toContain('Export refused')
+    expect(await run($, 'devtools-export', '.claude/settings.json')).toContain('Export refused')
+    expect(await run($, 'devtools-export', 'CLAUDE.md')).toContain('Export refused')
+    // An existing file is never replaced outside .claude-devtools/; the export folder's own files are.
+    const written = w.writes.size
+    expect(await run($, 'devtools-export', 'out/trace.json')).toContain('already exists')
+    expect(w.writes.size).toBe(written)
+    expect(await run($, 'devtools-export', '.claude-devtools/run.json')).toContain('Exported')
+    expect(await run($, 'devtools-export', '.claude-devtools/run.json')).toContain('Exported')
   })
 })

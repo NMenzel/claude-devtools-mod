@@ -7,7 +7,6 @@ Issues and pull requests are welcome.
 ```sh
 git clone https://github.com/NMenzel/claude-devtools-mod
 cd claude-devtools-mod
-npm install                      # local TypeScript only
 claude --plugin-dir .
 ```
 
@@ -18,8 +17,11 @@ Edits to `hooks/` and `src/` hot-reload in that session when Claude's turn ends.
 ```sh
 claude plugin validate . --strict
 claude plugin test .
-npx tsc -p .
+npx -p typescript@5 tsc -p .
 ```
+
+Do not add a `package.json` or a lockfile: beside each other in the plugin
+root they make Claude Code run a package install on every user's machine.
 
 All three must pass. The type check needs `.claude-plugin/types/`, which
 Claude Code writes the first time it loads the mod. To write it without an

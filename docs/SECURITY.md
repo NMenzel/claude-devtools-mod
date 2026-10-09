@@ -65,7 +65,7 @@ export. It covers:
 
 - private keys, `Bearer` and `Basic` credentials, Anthropic/OpenAI-style `sk-` keys, GitHub tokens (`ghp_`, `github_pat_`), GitLab, Slack, AWS access keys, Google API keys, npm tokens and JWTs
 - passwords in URLs (`scheme://user:[REDACTED]@host`)
-- every inline environment assignment value (`KEY=…`, `export KEY=…`, PowerShell `$env:KEY = …`)
+- every inline environment assignment value (`NAME=…`, `export NAME=…`, PowerShell `$env:NAME = …`), whatever the variable is called
 - secret CLI flags (`--password`, `--token`, `--api-key`, …) and secret headers
 - object keys named like secrets (`password`, `apiKey`, `client_secret`, `Authorization`, `cookie`, …)
 
@@ -88,7 +88,12 @@ and the exports all show that raw capture is on.
 | Exports | only where you run `/devtools-export`. The default is `.claude-devtools/` in the working directory, so add it to `.gitignore` | until you delete them |
 
 Export paths are validated: only `.json` or `.md` names, no `..` segments,
-no control characters. A relative path resolves under the session's working
+no control characters, no hidden file or folder other than `.claude-devtools/`
+(so no `.claude/`, `.mcp.json` or `.vscode/`), and no instructions file
+(`CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md`, `GEMINI.md`). Outside
+`.claude-devtools/` an export never replaces an existing file
+(`$.fs.exists` first), so it cannot overwrite a build, start-up, settings or
+instructions file. A relative path resolves under the session's working
 directory.
 
 ## Patterns as input

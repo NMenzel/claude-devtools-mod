@@ -69,6 +69,7 @@ export function world(on: On, seed: Record<string, unknown> = {}, withClock = tr
     w.writes.set(e.path, e.text)
     return { value: undefined }
   })
+  on('fs.exists', ($, e) => ({ value: w.writes.has(e.path) }))
   on('fs.stat', ($, e) => {
     w.statted.push(e.path)
     const asked = e.path.replace(/\\/g, '/')

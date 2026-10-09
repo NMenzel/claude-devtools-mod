@@ -44,6 +44,17 @@ describe('observing', () => {
     expect(t.stats.observed).toBe(1)
   })
 
+  test('the permission verdict passes through unchanged and is recorded as observed', async ($, on) => {
+    const w = world(on)
+    tools(on)
+    dialog(on, [])
+    await start($)
+    // Core raises tool.check beneath tool.call; the stubbed tools answer above core, so the test raises it as core would.
+    expect(await $.tool.check({ tool: 'Bash', input: { command: 'ls' }, tool_use_id: 'tu-1' })).toEqual({ decision: 'ask', reason: 'test rules ask' })
+    await $.tool.call({ tool: 'Bash', command: 'ls', tool_use_id: 'tu-1' })
+    expect((await trace($, w)).events[0]?.permission).toEqual({ decision: 'ask', reason: 'test rules ask', source: 'observed' })
+  })
+
   test('a failing tool is recorded as a tool error, not a denial', async ($, on) => {
     const w = world(on)
     tools(on, () => ({ isError: true, result: 'Exit code 1', text: 'Exit code 1\nnpm ERR! missing script: lint' }))
