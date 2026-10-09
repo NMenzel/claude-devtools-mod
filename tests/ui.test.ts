@@ -4,6 +4,7 @@
 
 import { describe, type Engine, expect, test } from 'claude-code/testing'
 
+import { BAR_HINT, barHint } from '../src/ui/inline.tsx'
 import { dialog, engineDraws, start, tools, world } from './kit.ts'
 
 const PANE = {
@@ -286,7 +287,7 @@ describe('breakpoints from the transcript', () => {
     await ui.unmount()
   })
 
-  test('inlineControls always gives the controls a line of their own', { options: { inlineControls: 'always' } }, async ($, on) => {
+  test('by default every row gets a dim "break on" line of its own', async ($, on) => {
     world(on)
     engineDraws(on)
     tools(on)
@@ -294,6 +295,19 @@ describe('breakpoints from the transcript', () => {
     await start($)
     const ui = await $.ui.mount({ ...toolRow('Grep', { pattern: 'TODO', path: '/work/src' }), surface: 'terminal' })
     expect(await ui.find({ type: 'Box', key: 'devtools-gutter' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: 'break on' })).toMatchObject({ props: { dimColor: true } })
+    expect(await ui.find({ type: 'Button', key: 'dt-path', text: '○ src/**' })).toMatchObject({ props: { dimColor: true } })
+    await ui.unmount()
+  })
+
+  test('inlineControls hover lays the controls over the row only while hovered', { options: { inlineControls: 'hover' } }, async ($, on) => {
+    world(on)
+    engineDraws(on)
+    tools(on)
+    dialog(on, [])
+    await start($)
+    const ui = await $.ui.mount({ ...toolRow('Grep', { pattern: 'TODO', path: '/work/src' }), surface: 'terminal' })
+    expect(await ui.find({ type: 'Box', key: 'devtools-gutter' })).toBeUndefined()
     expect(await ui.find({ type: 'Button', key: 'dt-path', text: '○ src/**' })).toBeDefined()
     await ui.unmount()
   })
@@ -329,13 +343,17 @@ describe('breakpoints from the transcript', () => {
     tools(on)
     dialog(on, [])
     await start($)
+    // Before the first call: only a dim hint, how to set a breakpoint and where help is.
     const empty = await $.ui.mount({ ...BAND, surface: 'terminal' })
     expect(await empty.find({ type: 'Button' })).toBeUndefined()
+    expect(await empty.find({ type: 'Text', text: /\/devtools-break <rule> · \/devtools-help/ })).toMatchObject({ props: { dimColor: true } })
     await empty.unmount()
 
     await $.tool.call({ tool: 'Bash', command: 'git push origin main' })
     const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
     expect(await ui.find({ type: 'Text', text: 'drawn by Claude Code' })).toBeDefined()
+    // At 120 columns the longest hint that keeps the bar on one line.
+    expect(await ui.find({ type: 'Text', text: '· /devtools-break <rule>' })).toMatchObject({ props: { dimColor: true } })
     const command = await ui.find({ type: 'Button', key: 'bar-command' })
     expect(command?.text).toBe('○ "git push"')
     expect(command?.props.hotkey).toBe('c')
@@ -348,6 +366,13 @@ describe('breakpoints from the transcript', () => {
     await ui.press({ key: 'bar-hide' })
     expect(await ui.find({ type: 'Button' })).toBeUndefined()
     await ui.unmount()
+  })
+
+  test('the bar hint shrinks to fit its line, and disappears before it would wrap', () => {
+    expect(barHint(200, 94)).toBe(BAR_HINT)
+    expect(barHint(120, 94)).toBe('/devtools-break <rule>')
+    expect(barHint(112, 94)).toBe('/devtools-help')
+    expect(barHint(110, 94)).toBeUndefined()
   })
 
   test('the bar yields to a survey', async ($, on) => {

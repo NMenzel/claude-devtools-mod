@@ -1,7 +1,7 @@
 {
   "name": "devtools",
   "displayName": "Claude DevTools",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A debugger for Claude Code tool calls: breakpoints, pause/continue/reject/step, a timeline, an inspector, Error Lens failure diagnosis and sanitized trace exports.",
   "author": { "name": "NMenzel", "url": "https://github.com/NMenzel" },
   "homepage": "https://github.com/NMenzel/claude-devtools-mod",
@@ -73,9 +73,9 @@
     "inlineControls": {
       "type": "string",
       "title": "Inline breakpoint controls",
-      "description": "The 'break on' controls under tool rows and the bar above the prompt: shown on hover, always, or off.",
-      "options": ["hover", "always", "off"],
-      "default": "hover"
+      "description": "The 'break on' controls under tool rows and the bar above the prompt: always (a dim line under each row), hover (only while the pointer is over a row; fullscreen terminal and desktop), or off.",
+      "options": ["always", "hover", "off"],
+      "default": "always"
     },
     "openOnStart": {
       "type": "boolean",

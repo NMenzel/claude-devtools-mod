@@ -55,34 +55,74 @@ export function renderGutter(els: Table, drawn: RenderElement, matched: readonly
 
 const BAR_HOTKEY: Record<Suggestion['id'], string> = { tool: 't', command: 'c', path: 'f' }
 
-/** The bar above the prompt: the latest call, one-key breakpoints for it, and its Error Lens when it failed. */
+export const BAR_HINT = '/devtools-break <rule> · /devtools-help'
+/** Longest first: the bar shows the longest that still fits on its line, so it never wraps. */
+const HINTS = [BAR_HINT, '/devtools-break <rule>', '/devtools-help']
+/** A plain Button with a hotkey draws `t: label`. */
+const BUTTON_EXTRA = 3
+
+/** The hint that still fits on the bar's line, if any. */
+export function barHint(width: number, used: number): string | undefined {
+  return HINTS.find(hint => width - used >= hint.length + 3)
+}
+
+/**
+ * The bar above the prompt: the latest call, one-key breakpoints for it, its
+ * Error Lens when it failed, and a dim hint. Before the first call, the hint alone.
+ */
 export function renderBar(
   els: Table,
   below: RenderElement,
-  event: TraceEvent,
+  event: TraceEvent | undefined,
   offers: readonly Offer[],
   width: number,
   on: { toggle: (offer: Offer) => void; open: () => void; hide: () => void; lens: () => void },
 ): RenderElement {
   const { Box, Text, Button } = els
+  const cells = Math.max(24, width)
+  if (event === undefined) {
+    return (
+      <Box flexDirection="column">
+        {below}
+        <Box key="devtools-bar" flexDirection="row" columnGap={1} width={cells}>
+          <Text color={C.brand} dimColor>
+            DevTools
+          </Text>
+          <Text dimColor wrap="truncate-end">
+            {truncate(`· press "break on" under any tool call, or ${BAR_HINT}`, cells - 9)}
+          </Text>
+        </Box>
+      </Box>
+    )
+  }
+  const summary = truncate(`${event.tool} ${event.inputSummary}`, Math.max(16, Math.floor(width / 3)))
+  const lens = event.errorCategory !== undefined ? `✗ why? (${event.errorCategory})` : undefined
+  const labels = [...offers.map(offerLabel), ...(lens !== undefined ? [lens] : []), 'DevTools', 'hide']
+  const used = 'DevTools'.length + 2 + 2 + summary.length + 1 + '· break on'.length + labels.reduce((sum, label) => sum + label.length + 1 + BUTTON_EXTRA, 0)
+  const hint = barHint(cells, used)
   return (
     <Box flexDirection="column">
       {below}
-      <Box key="devtools-bar" flexDirection="row" columnGap={1} flexWrap="wrap" width={Math.max(24, width)}>
+      <Box key="devtools-bar" flexDirection="row" columnGap={1} flexWrap="wrap" width={cells}>
         <Text color={C.brand} bold>
           DevTools
         </Text>
         <Text color={STATUS_COLOR[event.status]}>{statusIcon(event.status)}</Text>
         <Text dimColor wrap="truncate-end">
-          {truncate(`${event.tool} ${event.inputSummary}`, Math.max(16, Math.floor(width / 3)))}
+          {summary}
         </Text>
         <Text dimColor>· break on</Text>
         {offers.map(offer => (
           <Button key={`bar-${offer.id}`} hotkey={BAR_HOTKEY[offer.id]} plain dimColor={offer.rule === undefined} label={offerLabel(offer)} onPress={() => on.toggle(offer)} />
         ))}
-        {event.errorCategory !== undefined && <Button key="bar-lens" hotkey="e" plain label={`✗ why? (${event.errorCategory})`} onPress={() => on.lens()} />}
+        {lens !== undefined && <Button key="bar-lens" hotkey="e" plain label={lens} onPress={() => on.lens()} />}
         <Button key="bar-open" hotkey="d" plain dimColor label="DevTools" onPress={() => on.open()} />
         <Button key="bar-hide" hotkey="x" plain dimColor label="hide" onPress={() => on.hide()} />
+        {hint !== undefined && (
+          <Text key="bar-hint" dimColor>
+            {`· ${hint}`}
+          </Text>
+        )}
       </Box>
     </Box>
   )

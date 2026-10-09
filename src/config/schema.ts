@@ -35,7 +35,7 @@ export const DEFAULT_OPTIONS: DevtoolsOptions = {
   redaction: true,
   captureRaw: false,
   persistBreakpoints: true,
-  inlineControls: 'hover',
+  inlineControls: 'always',
   openOnStart: true,
   errorLens: 'probe',
   errorToasts: true,
@@ -84,7 +84,7 @@ export function parseOptions(raw: Readonly<Record<string, unknown>> | undefined)
   }
   if (source.inlineControls !== undefined) {
     if (source.inlineControls === 'hover' || source.inlineControls === 'always' || source.inlineControls === 'off') options.inlineControls = source.inlineControls
-    else warnings.push('option inlineControls must be hover, always or off; using hover')
+    else warnings.push('option inlineControls must be always, hover or off; using always')
   }
   if (source.errorLens !== undefined) {
     if (source.errorLens === 'probe' || source.errorLens === 'classify' || source.errorLens === 'off') options.errorLens = source.errorLens

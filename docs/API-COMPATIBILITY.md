@@ -32,7 +32,7 @@ two differ, the installed declarations win.
 | Error Lens checks | `$.fs.stat(path, { resolve: true })`: kind, size, mtimeMs, isLink, realPath; rejects `ENOENT` when missing. No permission bits, owner or lock state | d.ts `FsStat`, `fs.stat` |
 | Work after the hook returns | `$.clock.after(0, fn)`: `fn` runs in the plugin's environment once the wait resolves | d.ts `clock.after`, `TimerCall` |
 | Toasts | `$.ui.toast(text, { timeoutMs })`: text only, no buttons | d.ts `ToastOptions` |
-| Tests | `claude-code/testing`: `test`, `expect`, `mock.clock`, stubs via the test's `on`, `$.ui.mount` per surface | d.ts `declare module 'claude-code/testing'`; 143 tests pass |
+| Tests | `claude-code/testing`: `test`, `expect`, `mock.clock`, stubs via the test's `on`, `$.ui.mount` per surface | d.ts `declare module 'claude-code/testing'`; 145 tests pass |
 
 ## Constraints discovered (all handled)
 

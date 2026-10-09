@@ -2,8 +2,8 @@
 
 ## Verified
 
-Every line below is covered by `claude plugin test .`. That suite has 143
-tests: 80 on the pure engine, and 63 that load the mod into the engine's own
+Every line below is covered by `claude plugin test .`. That suite has 145
+tests: 80 on the pure engine, and 65 that load the mod into the engine's own
 test host and drive its real hooks.
 
 - A Bash call matching a breakpoint pauses. **Reject** keeps the tool from running, and Claude reads why.
@@ -23,7 +23,7 @@ test host and drive its real hooks.
 - JSON exports pass the schema validator. The Markdown report is generated.
 - The dashboard draws on the terminal and desktop element tables, compact and wide (two columns): header, legend, PAUSED and ARMED, BREAKPOINTS, the CALLS strip and counts, TIMELINE. Inline placement draws the mini summary.
 - Tabs, timeline paging, the inspector and its break-on buttons, adding, toggling and deleting rules, category toggles, the mode picker, arming, recording and export all work. A narrow width truncates, and mobile falls back.
-- Transcript gutter: Bash rows offer tool and command, Read rows their path relative to the project, folded groups one toggle per tool. A press sets a rule (and the red mark appears), and a second press removes it. `inlineControls` always and off behave as described. Nothing draws while the mode is off.
+- Transcript gutter: Bash rows offer tool and command, Read rows their path relative to the project, folded groups one toggle per tool. A press sets a rule (and the red mark appears), and a second press removes it. `inlineControls` always (the default), hover and off behave as described. The bar's hint shrinks to fit its line, and before the first call it stands alone. Nothing draws while the mode is off.
 - The bar above the prompt shows the latest call with `t`/`c`/`f` toggles, opens the pane, hides, and yields to surveys.
 - Error Lens: a successful call leaves no record. Each of these is classified with the right certainty: a failed Read, Write or Edit, a permission denial, a hook refusal, an ambiguous failure, a suspected MCP success, and DevTools' own refusal. In every case the result Claude gets is unchanged and the tool ran once. Read-only checks find a missing parent folder and a write that landed despite its error. Repeats are grouped and announced on the first and every fifth. `errorLens` `off` and `classify` and `errorToasts` off behave as described. Recording off still diagnoses. Secrets are redacted in records and exports. The Errors tab, the ERRORS panel, the timeline's ` why?`, the Inspector's `w` and the bar's `e` all reach it.
 
@@ -57,7 +57,7 @@ tested. Try it after installing it (see the README).
 - **Fail-closed needs one read.** The `.catch` handler judges from the last settings the module read. If the guard fails before the module has read its settings even once (its very first call after a load), the handler has no rules to apply and lets the call through.
 - **Re-entry.** A tool call raised beneath DevTools' own pause (another mod acting inside the dialog) is judged from a settings snapshot and refused if a breakpoint would hold it.
 - **Reload while paused.** A hot reload discards the old module. The paused event is closed as `aborted`, and what happens to the held call is the engine's business.
-- **The gutter needs a pointer.** Hover and clicks on transcript rows reach the mod only where the surface reports them (the fullscreen terminal, Claude Desktop). On the main-screen terminal, use the bar above the prompt (ctrl+x tab, then `t`/`c`/`f`), the Inspector or `/devtools-break`. In `hover` mode the controls lay over the row's top-right corner while hovered, and can cover the end of a long first line.
+- **The gutter needs a pointer to press.** Clicks (and, in `hover` mode, hover) on transcript rows reach the mod only where the surface reports them (the fullscreen terminal, Claude Desktop). On the main-screen terminal, use the bar above the prompt (ctrl+x tab, then `t`/`c`/`f`), the Inspector or `/devtools-break`. In `hover` mode the controls lay over the row's top-right corner while hovered, and can cover the end of a long first line.
 - **The gutter suggests, it does not edit.** It sets a pause rule on the tool, the program and subcommand (`npm test`), or the exact path. For a wider or narrower rule, use the rule language.
 - **Surfaces.** The pane draws in the terminal and Claude Desktop. In VS Code's chat panel, `claude -p` and the SDK, the hooks run and nothing draws, so use the commands. Mobile has no input fields.
 - **Error Lens sees what a mod sees.** `$.fs.stat` reports no permission bits, owner, ACL, attribute or lock, and no mod can see which process holds or changed a file. Those causes stay `POSSIBLE` or `UNKNOWN`.

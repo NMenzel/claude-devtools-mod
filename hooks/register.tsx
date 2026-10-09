@@ -81,7 +81,7 @@ import { type Offer, renderBar, renderGutter } from '../src/ui/inline.tsx'
 import type { Layout } from '../src/ui/model.ts'
 import { type PaneActions, renderPane } from '../src/ui/pane.tsx'
 
-const VERSION = '0.1.0'
+const VERSION = '0.1.1'
 const PANE = 'devtools'
 
 // The $.state values kept for the session (declared in ../types/index.d.ts):
@@ -1115,14 +1115,15 @@ export const register: Register = (on, rawOptions) => {
     const [held, view, trace, session] = await Promise.all([$.state.get(SETTINGS), read($, VIEW), read($, TRACE), read($, SESSION)])
     const settings = held.value ?? defaultSettings(options)
     const last = trace.at(-1)
-    if (settings.mode === 'off' || view.barHidden === true || last === undefined) return below
+    if (settings.mode === 'off' || view.barHidden === true) return below
     const cwd = session.cwd === '' ? undefined : session.cwd
-    const offers: Offer[] = suggestBreakpoints(last.tool, last.input, cwd).map(s => ({ ...s, key: `bar-${s.id}`, rule: findRule(settings.breakpoints, s.kind, s.match) }))
+    const offers: Offer[] =
+      last === undefined ? [] : suggestBreakpoints(last.tool, last.input, cwd).map(s => ({ ...s, key: `bar-${s.id}`, rule: findRule(settings.breakpoints, s.kind, s.match) }))
     return renderBar($.ui.resolve(e), below, last, offers, e.props.bodyColumns, {
       toggle: offer => settle($, toggleSuggestion($, offer)),
       open: () => settle($, openPane($, true)),
       hide: () => settle($, hideBar($)),
-      lens: () => settle($, openLens($, last.id)),
+      lens: () => last !== undefined && settle($, openLens($, last.id)),
     })
   })
 }

@@ -157,8 +157,8 @@ inside Claude Code's own dialog, so the wait never times out the hook.
 
 There are three ways to set a breakpoint without typing a rule.
 
-- **The transcript gutter.** Hover a tool row (`Bash(npm test)`, `Read(src/auth/login.ts)`, a folded "Read 3 files, searched 2 patterns" line). It shows `break on: ○ Bash ○ "npm test" ○ src/x.ts`. Press one to set a pause breakpoint on that tool, that command (program and subcommand), or that path. Press it again to remove it. A row that a breakpoint covers gets a red `● breakpoint bp1 …` line. Hover and clicks need a pointer, which means the fullscreen terminal or Claude Desktop. Set the `inlineControls` option to `always` to keep the controls on a line of their own.
-- **The bar above the prompt.** It shows the latest call: `DevTools ✓ Bash git push origin main · break on ○ Bash ○ "git push" · DevTools · hide`. Press ctrl+x tab to focus it, then `t` for the tool, `c` for the command, `f` for the path, `d` to open the dashboard and `x` to hide it. When that call failed, `e` (`✗ why?`) opens its Error Lens. This works on every terminal layout, keyboard only.
+- **The transcript gutter.** Under every tool row (`Bash(npm test)`, `Read(src/auth/login.ts)`, a folded "Read 3 files, searched 2 patterns" line) sits one dim line: `break on ○ Bash ○ "npm test" ○ src/x.ts`. Press one to set a pause breakpoint on that tool, that command (program and subcommand), or that path. Press it again to remove it. A row that a breakpoint covers gets a red `● breakpoint bp1 …` line. Clicks need a pointer (the fullscreen terminal or Claude Desktop); the bar below works by keyboard everywhere. Set `inlineControls` to `hover` to show the controls only while the pointer is over a row, or `off`.
+- **The bar above the prompt.** It shows the latest call: `DevTools ✓ Bash git push origin main · break on ○ Bash ○ "git push" · DevTools · hide`. Press ctrl+x tab to focus it, then `t` for the tool, `c` for the command, `f` for the path, `d` to open the dashboard and `x` to hide it. When that call failed, `e` (`✗ why?`) opens its Error Lens. A dim hint at its end names `/devtools-break <rule>` and `/devtools-help`, as far as the line has room; before the first tool call the bar is that hint alone. This works on every terminal layout, keyboard only.
 - **Category toggles**, like Chrome's event-listener breakpoints: `pause on ■ Shell □ Read □ Search □ Edit □ Web □ Agents`. They are on the dashboard and the Breakpoints tab, and each one adds or removes a tool breakpoint for the whole family.
 
 The Inspector has the same `break on` buttons for any recorded call, on keys `1` `2` `3`.
@@ -299,7 +299,7 @@ Set them in `/config`, or at install time with `claude plugin install ... --conf
 | `redaction` | `true` | Redact credentials, tokens and environment values |
 | `captureRaw` | `false` | Also keep raw inputs/outputs (truncated). **Privacy risk**: may capture file contents |
 | `persistBreakpoints` | `true` | Save rules and mode in the plugin store across sessions |
-| `inlineControls` | `hover` | The transcript gutter and the bar above the prompt: `hover`, `always` (gutter on its own line) or `off` |
+| `inlineControls` | `always` | The transcript gutter and the bar above the prompt: `always` (a dim line under each row), `hover` (only while the pointer is over a row) or `off` |
 | `openOnStart` | `true` | Open the dashboard when an interactive session starts (seated unasked only from 144 columns) |
 | `errorLens` | `probe` | `probe`: diagnose failures and check the paths involved (stat only). `classify`: from the result alone, no file system access. `off` |
 | `errorToasts` | `true` | Notify on a failure: the first of each kind, then every fifth repeat |
@@ -309,7 +309,7 @@ Set them in `/config`, or at install time with `claude plugin install ... --conf
 ```bash
 npm install                      # local TypeScript only; nothing global
 claude plugin validate .         # manifest, hooks, calls, state contract
-claude plugin test .             # 143 tests: pure engine + real hooks and UI through claude-code/testing
+claude plugin test .             # 145 tests: pure engine + real hooks and UI through claude-code/testing
 npx tsc -p .                     # type-check (after one load has laid .claude-plugin/types)
 ```
 
