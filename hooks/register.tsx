@@ -8,7 +8,7 @@
 // options `register` receives are kept in module variables.
 
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register } from 'claude-code'
+import type { EngineInterface, Register, TraceEntry } from 'claude-code'
 
 import type {
   ArmState,
@@ -81,7 +81,7 @@ import { type Offer, renderBar, renderGutter } from '../src/ui/inline.tsx'
 import type { Layout } from '../src/ui/model.ts'
 import { type PaneActions, renderPane } from '../src/ui/pane.tsx'
 
-const VERSION = '0.1.2'
+const VERSION = '0.1.3'
 const PANE = 'devtools'
 
 // The $.state values kept for the session (declared in ../types/index.d.ts):
@@ -128,6 +128,14 @@ const mirror: { settings?: DevtoolsSettings; arm?: ArmState; cwd?: string } = {}
 const verdicts = new Map<string, PermissionInfo>()
 let localSeq = 0
 
+/** Keeps the verdict a real call reached: the nearest result that settled beneath the tool.check hook. */
+function noteVerdict(toolUseId: string | undefined, trace: readonly TraceEntry<'tool.check'>[]): void {
+  const verdict = trace.find(link => link.returned !== undefined)?.returned
+  if (toolUseId === undefined || verdict === undefined) return
+  if (verdicts.size > 200) verdicts.clear()
+  verdicts.set(toolUseId, { decision: verdict.decision, rule: verdict.rule, reason: verdict.reason, source: 'observed' })
+}
+
 function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
@@ -173,25 +181,25 @@ async function liveSettings($: Dollar): Promise<DevtoolsSettings> {
 /** A person's change: written to the session and, when enabled, to the store. */
 async function changeSettings($: Dollar, change: (settings: DevtoolsSettings) => DevtoolsSettings): Promise<DevtoolsSettings> {
   await loadSettings($)
-  const next = await update($, SETTINGS, current => change(current ?? defaultSettings(options)))
-  mirror.settings = withHits(next, await read($, HITS))
+  const saved = await update($, SETTINGS, current => change(current ?? defaultSettings(options)))
+  mirror.settings = withHits(saved, await read($, HITS))
   if (options.persistBreakpoints) {
     try {
-      await $.store.set(STORE_KEY, toPersisted(next))
+      await $.store.set(STORE_KEY, toPersisted(saved))
     } catch (error) {
       debug($, `could not save settings: ${message(error)}`)
     }
   }
   await refreshStatus($)
-  return next
+  return saved
 }
 
 /** Counts hits in their own state key: the rules, which transcript rows read, do not change. */
 async function bumpHits($: Dollar, ids: readonly string[]): Promise<void> {
   await update($, HITS, hits => {
-    const next = { ...hits }
-    for (const id of ids) next[id] = (next[id] ?? 0) + 1
-    return next
+    const counts = { ...hits }
+    for (const id of ids) counts[id] = (counts[id] ?? 0) + 1
+    return counts
   })
 }
 
@@ -498,8 +506,8 @@ async function afterRun(
   if (!isRecorded) await addEvent($, { ...event, ...change, breakpointIds: ids, ...(errorCategory !== undefined ? { errorCategory } : {}) })
   else await patch($, event.id, { breakpointIds: [...(event.breakpointIds ?? []), ...ids] })
   if (planned.arm !== arm) await setArm($, planned.arm)
-  const next = planned.arm.pauseNext ? ' The next tool call will pause.' : ''
-  $.ui.toast(`DevTools: ${call.tool} failed (${planned.triggered.map(bp => bp.name).join(', ')}).${next}`, { timeoutMs: 6000 })
+  const armedNote = planned.arm.pauseNext ? ' The next tool call will pause.' : ''
+  $.ui.toast(`DevTools: ${call.tool} failed (${planned.triggered.map(bp => bp.name).join(', ')}).${armedNote}`, { timeoutMs: 6000 })
 }
 
 // ------------------------------------------------------------------ error lens
@@ -728,6 +736,11 @@ async function exportTrace($: Dollar, args: string): Promise<string> {
   const stamp = new Date(now).toISOString().replace(/[:.]/g, '-')
   const paths = exportPaths(target, cwd, stamp, wantsMarkdown)
   if (!paths.ok) return `Export refused: ${paths.error}.`
+  if (!paths.mayReplace) {
+    for (const path of [paths.json, paths.markdown]) {
+      if (path !== undefined && (await $.fs.exists(path))) return `Export refused: ${path} already exists. Only files in .claude-devtools/ are replaced; choose a new name.`
+    }
+  }
   const built = buildExport({
     version: VERSION,
     exportedAt: new Date(now).toISOString(),
@@ -967,13 +980,15 @@ export const register: Register = (on, rawOptions) => {
   })
 
   // Observes the permission verdict each real call reaches; changes nothing.
-  on('tool.check', async ($, e, next) => {
-    const verdict = await next(e)
-    if (e.tool_use_id !== undefined) {
-      if (verdicts.size > 200) verdicts.clear()
-      verdicts.set(e.tool_use_id, { decision: verdict.decision, rule: verdict.rule, reason: verdict.reason, source: 'observed' })
+  // It returns what is beneath it, as is, and reads the verdict afterwards
+  // from the chain's trace. Its parameter names are used nowhere else in this
+  // file, so the plugin directory can confirm the decision stays the user's.
+  on('tool.check', async (_engine, query, onward) => {
+    try {
+      return await onward(query)
+    } finally {
+      noteVerdict(query.tool_use_id, onward.trace)
     }
-    return verdict
   })
 
   on('session.start', async ($, e, next) => {

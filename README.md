@@ -311,14 +311,50 @@ Set them in `/config`, or at install time with `claude plugin install ... --conf
 | `errorLens` | `probe` | `probe`: diagnose failures and check the paths involved (stat only). `classify`: from the result alone, no file system access. `off` |
 | `errorToasts` | `true` | Notify on a failure: the first of each kind, then every fifth repeat |
 
+## What it hooks, reads and writes
+
+Everything below lives in [`hooks/register.tsx`](hooks/register.tsx).
+
+| Hook | What it does |
+| - | - |
+| `tool.check` (the permission check) | **Decides nothing.** It passes every permission check on unchanged and only reads the verdict Claude Code reached (allow, ask or deny, and the rule behind it) to show it in the timeline, the inspector and Error Lens. It never answers allow, ask or deny itself, so the permission decision stays with your rules, your mode and you. |
+| `tool.call` | Records each tool call. Only when a breakpoint you set matches does it hold the call and ask you: Continue, Step, Reject, or Simulate (opt-in). After Continue, Claude Code's permission check still runs as usual. In `claude -p`, a call matching a pause breakpoint is rejected by default (`headlessPause`). It never approves a call. |
+| `classic.SessionStart` | After `/clear`, reads the session id and working directory for the timeline. It passes the event on unchanged and changes no setting, instruction, hook or tool description. |
+| `command.run` | Answers only its own commands, matched by name: `/devtools`, `/devtools-*`, `/bp`, `/bpl`, `/bpn`, `/bpc`, `/bpe`. Whether you or other code runs one of them, it answers that command and nothing else; it never sees or changes any other command. |
+| `session.start`, `ui.render` | Registers the commands, opens the pane, and draws the pane, the transcript gutter and the bar above the prompt. |
+
+**Files it writes.** Only when you run `/devtools-export` or press Export in
+the pane: a trace as `.json` (and `.md` with `--md`), by default
+`.claude-devtools/trace-<time>.json` in the project. It is not meant to edit
+any build, start-up, settings or instructions file, and it refuses to:
+
+- a path must end in `.json` or `.md`, and may not contain `..`;
+- it may not name a hidden file or folder other than `.claude-devtools/` (so no `.claude/`, `.mcp.json`, `.vscode/`, `.github/`);
+- it may not name an instructions file (`CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md`, `GEMINI.md`);
+- outside `.claude-devtools/` it never replaces an existing file (so no `package.json`, `tsconfig.json` or `README.md`).
+
+**Files it reads.** With `errorLens` set to `probe`, after a call fails, it
+checks the paths that call named with `stat`: kind, size and modified time,
+never contents. `classify` or `off` turns this off.
+
+**What it stores.** Breakpoint rules and the debugger mode in the plugin store
+(`persistBreakpoints`). The timeline stays in the session's memory.
+
+**What it never does.** No network requests, no model calls, no processes,
+no changes to your permission settings. At a pause it asks Claude Code what
+your permission rules would decide (a query that runs nothing) to show it in
+the dialog.
+
 ## Develop and test
 
 ```bash
-npm install                      # local TypeScript only; nothing global
 claude plugin validate .         # manifest, hooks, calls, state contract
-claude plugin test .             # 146 tests: pure engine + real hooks and UI through claude-code/testing
-npx tsc -p .                     # type-check (after one load has laid .claude-plugin/types)
+claude plugin test .             # 148 tests: pure engine + real hooks and UI through claude-code/testing
+npx -p typescript@5 tsc -p .     # type-check (after one load has laid .claude-plugin/types)
 ```
+
+The plugin ships no `package.json`: it has no npm dependencies, so installing
+it runs no package install. TypeScript is only for the type check above.
 
 The engine writes `.claude-plugin/types/` the first time it loads the
 folder. To lay it without starting an interactive session, run once:

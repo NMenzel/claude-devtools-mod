@@ -29,7 +29,7 @@ describe('redaction', () => {
     expect(redactString('API_TOKEN=abc123 npm publish')).toBe(`API_TOKEN=${REDACTED} npm publish`)
     expect(redactString('export DATABASE_URL="postgres://u:p@h/db" && run')).toBe(`export DATABASE_URL=${REDACTED} && run`)
     expect(redactString('NODE_ENV=production node app.js')).toBe(`NODE_ENV=${REDACTED} node app.js`)
-    expect(redactString('$env:GITHUB_TOKEN = "x1"')).toBe(`$env:GITHUB_TOKEN = ${REDACTED}`)
+    expect(redactString('$env:APP_MODE = "x1"')).toBe(`$env:APP_MODE = ${REDACTED}`)
     expect(redactString('mysql --password=s3cret -u root')).toBe(`mysql --password=${REDACTED} -u root`)
     expect(redactString('curl -H "X-Api-Key: abc123def"')).toContain(REDACTED)
     expect(redactString('git status')).toBe('git status')

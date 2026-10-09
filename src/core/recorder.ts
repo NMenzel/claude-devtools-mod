@@ -82,24 +82,43 @@ export function buildExport(args: {
   }
 }
 
-export type ExportPaths = { ok: true; json: string; markdown?: string } | { ok: false; error: string }
+/** `mayReplace`: the target is in the export folder, the only place an existing file may be replaced. */
+export type ExportPaths = { ok: true; json: string; markdown?: string; mayReplace: boolean } | { ok: false; error: string }
+
+const EXPORT_FOLDER = '.claude-devtools'
+
+/** Files coding agents read as instructions; an export never writes one. */
+const INSTRUCTIONS_FILE = /(^|[\\/])(claude|claude\.local|agents|gemini)\.md$/i
 
 /**
  * Where `/devtools-export [path] [--md]` writes. A path is the person's own
  * input, so it is checked: a .json or .md name, no `..` segment, no control
- * characters; a relative path lands under the session's working directory.
+ * characters, no hidden file or folder (where settings and tool configuration
+ * live) but the export folder, no instructions file; a relative path lands
+ * under the session's working directory. Outside the export folder the
+ * caller refuses to replace an existing file, so no build, settings or
+ * instructions file is ever overwritten.
  */
 export function exportPaths(arg: string | undefined, cwd: string, stamp: string, wantsMarkdown: boolean): ExportPaths {
   const root = cwd.replace(/[\\/]+$/, '')
-  const target = arg === undefined || arg === '' ? `.claude-devtools/trace-${stamp}.json` : arg
+  const target = arg === undefined || arg === '' ? `${EXPORT_FOLDER}/trace-${stamp}.json` : arg
   if (/[\u0000-\u001f]/.test(target)) return { ok: false, error: 'the export path holds a control character' }
-  if (target.split(/[\\/]/).includes('..')) return { ok: false, error: 'the export path may not contain ".." segments' }
+  const segments = target.split(/[\\/]/).filter(part => part !== '' && part !== '.')
+  if (segments.includes('..')) return { ok: false, error: 'the export path may not contain ".." segments' }
+  if (segments.some(part => part.startsWith('.') && part !== EXPORT_FOLDER)) {
+    return { ok: false, error: `the export path may not name a hidden file or folder other than ${EXPORT_FOLDER}/` }
+  }
   const isAbsolutePath = /^([a-zA-Z]:[\\/]|[\\/])/.test(target)
   const full = isAbsolutePath ? target : `${root}/${target}`
   const lower = full.toLowerCase()
-  if (lower.endsWith('.json')) return { ok: true, json: full, ...(wantsMarkdown ? { markdown: `${full.slice(0, -5)}.md` } : {}) }
-  if (lower.endsWith('.md')) return { ok: true, json: `${full.slice(0, -3)}.json`, markdown: full }
-  return { ok: false, error: 'the export path must end in .json or .md' }
+  let paths: { json: string; markdown?: string }
+  if (lower.endsWith('.json')) paths = { json: full, ...(wantsMarkdown ? { markdown: `${full.slice(0, -5)}.md` } : {}) }
+  else if (lower.endsWith('.md')) paths = { json: `${full.slice(0, -3)}.json`, markdown: full }
+  else return { ok: false, error: 'the export path must end in .json or .md' }
+  if (paths.markdown !== undefined && INSTRUCTIONS_FILE.test(paths.markdown)) {
+    return { ok: false, error: 'the export path names an instructions file (CLAUDE.md, AGENTS.md, GEMINI.md)' }
+  }
+  return { ok: true, ...paths, mayReplace: !isAbsolutePath && segments[0] === EXPORT_FOLDER }
 }
 
 function byteLength(text: string): number {

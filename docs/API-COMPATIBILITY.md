@@ -27,12 +27,12 @@ two differ, the installed declarations win.
 | Open on start | `$.ui.open` unasked from `session.start`: seated from 144 columns, waits below | d.ts `ui.open` doc |
 | Session state | `$.state` with `atom` / `read` / `update`; contract in `types/index.d.ts` | validate lists every state read and write against the contract |
 | Persistence | `$.store` get/set (JSON, 4 MiB total) | d.ts `store` |
-| Export | `$.fs.write(path, text)` (4 MiB per file); `$.session.cwd()` | d.ts `fs.write` |
+| Export | `$.fs.write(path, text)` (4 MiB per file); `$.fs.exists(path)` before replacing a file; `$.session.cwd()` | d.ts `fs.write`, `fs.exists` |
 | Options | manifest `userConfig` (`boolean`, `number` with `min`/`max`, `string` with `options`) → `register(on, options)` | docs manifest reference; validate passes |
 | Error Lens checks | `$.fs.stat(path, { resolve: true })`: kind, size, mtimeMs, isLink, realPath; rejects `ENOENT` when missing. No permission bits, owner or lock state | d.ts `FsStat`, `fs.stat` |
 | Work after the hook returns | `$.clock.after(0, fn)`: `fn` runs in the plugin's environment once the wait resolves | d.ts `clock.after`, `TimerCall` |
 | Toasts | `$.ui.toast(text, { timeoutMs })`: text only, no buttons | d.ts `ToastOptions` |
-| Tests | `claude-code/testing`: `test`, `expect`, `mock.clock`, stubs via the test's `on`, `$.ui.mount` per surface | d.ts `declare module 'claude-code/testing'`; 146 tests pass |
+| Tests | `claude-code/testing`: `test`, `expect`, `mock.clock`, stubs via the test's `on`, `$.ui.mount` per surface | d.ts `declare module 'claude-code/testing'`; 148 tests pass |
 
 ## Constraints discovered (all handled)
 

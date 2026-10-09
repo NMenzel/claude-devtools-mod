@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.3
+
+- The `tool.check` hook returns the permission check's own result unchanged and reads the verdict from the chain's trace, so the plugin directory can confirm the decision stays with the user. It still records the verdict in the timeline.
+- `/devtools-export` refuses hidden files and folders other than `.claude-devtools/` (`.claude/`, `.mcp.json`, ...), instructions files (`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`), and, outside `.claude-devtools/`, any file that already exists. It can no longer overwrite a build, settings or instructions file.
+- No `package.json` or lockfile: installing the plugin runs no package install. Type-check with `npx -p typescript@5 tsc -p .`.
+- A plugin icon (`.claude-plugin/icon.png`).
+- README: what each hook does, and what the mod reads, writes and stores.
+- 148 tests.
+
 ## 0.1.2
 
 - Short aliases: `/bp <rule>` (= `/devtools-break`; `/bp` alone lists the breakpoints), `/bpl`, `/bpn`, `/bpc`, `/bpe`.
