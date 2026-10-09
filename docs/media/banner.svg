@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="300" viewBox="0 0 1200 300" role="img" aria-labelledby="title desc">
+  <title id="title">Claude DevTools</title>
+  <desc id="desc">Breakpoints, stepping and Error Lens for Claude Code tool calls</desc>
+  <rect width="1200" height="300" rx="18" fill="#1a1a1a"/>
+  <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="20">
+    <text x="64" y="92" fill="#6b6b6b">12</text>
+    <text x="64" y="132" fill="#6b6b6b">13</text>
+    <text x="64" y="172" fill="#6b6b6b">14</text>
+    <text x="64" y="212" fill="#6b6b6b">15</text>
+    <circle cx="44" cy="126" r="9" fill="#e5484d"/>
+    <text x="112" y="92" fill="#8a8a8a">Read(src/auth/login.ts)</text>
+    <text x="112" y="132" fill="#f2f2f2">Bash(git push origin main)</text>
+    <text x="112" y="172" fill="#8a8a8a">⏸ paused · Continue · Step · Reject</text>
+    <text x="112" y="212" fill="#e5484d">✗ Write failed · EPERM · why?</text>
+  </g>
+  <line x1="560" y1="56" x2="560" y2="244" stroke="#333" stroke-width="2"/>
+  <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
+    <text x="610" y="128" fill="#f2f2f2" font-size="54" font-weight="700">Claude DevTools</text>
+    <text x="612" y="172" fill="#d97757" font-size="24" font-weight="600">Breakpoints for your coding agent</text>
+    <text x="612" y="210" fill="#9a9a9a" font-size="19">Pause · Step · Reject · Error Lens · a Claude Code mod</text>
+  </g>
+</svg>

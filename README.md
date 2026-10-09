@@ -1,25 +1,64 @@
-# Claude DevTools (`agent-devtools`)
+<p align="center">
+  <img src="docs/media/banner.svg" alt="Claude DevTools: a paused git push at a breakpoint, and a failed Write with a why? link" width="720">
+</p>
 
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Claude Code mod](https://img.shields.io/badge/Claude%20Code-2.1.294%2B%20mod-d97757.svg)](https://claude.com/blog/claude-code-mods)
+<h1 align="center">Claude DevTools</h1>
 
-**Inspect, pause and control your coding agent's tool calls before they run, and see why they failed.**
+<p align="center">
+  <strong>Breakpoints for your coding agent. Stop it before it runs <code>git push</code>. See why its last call failed.</strong>
+</p>
+
+<p align="center">
+  <sub>A Claude Code mod that works like a debugger for tool calls: breakpoints on tools, commands, files and errors · Continue, Step and Reject · a live dashboard · Error Lens failure diagnosis. Everything stays on your machine.</sub>
+</p>
+
+<p align="center">
+  <a href="https://github.com/NMenzel/claude-devtools-mod/stargazers"><img src="https://img.shields.io/github/stars/NMenzel/claude-devtools-mod?style=flat-square&color=yellow&label=stars" alt="GitHub stars"></a>&nbsp;
+  <a href="https://github.com/NMenzel/claude-devtools-mod/releases/latest"><img src="https://img.shields.io/github/v/release/NMenzel/claude-devtools-mod?style=flat-square&label=version&color=blue" alt="Latest release"></a>&nbsp;
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License: MIT"></a>&nbsp;
+  <a href="https://claude.com/blog/claude-code-mods"><img src="https://img.shields.io/badge/Claude%20Code-2.1.294%2B%20mod-d97757?style=flat-square" alt="Claude Code 2.1.294+ mod"></a>&nbsp;
+  <img src="https://img.shields.io/badge/surfaces-terminal%20%7C%20desktop-lightgrey?style=flat-square" alt="Surfaces: terminal and desktop">
+</p>
 
 <p align="center">
   <a href="#install">Install</a> · <a href="#use-it">Use it</a> · <a href="#error-lens-why-a-tool-call-failed">Error Lens</a> · <a href="#commands">Commands</a> · <a href="#options">Options</a> · <a href="docs/SECURITY.md">Security</a>
 </p>
 
-Claude DevTools is a Claude Code Mod (a plugin of native function hooks). It
-works like a debugger for the agent's **tool level**: breakpoints on tools,
-shell commands, file paths and errors; a pause dialog with Continue, Step,
-Reject and (opt-in) Simulate; a timeline of what really ran; an inspector;
-**Error Lens**, which explains why a tool call failed from evidence; and
-sanitized trace exports.
+---
 
-It does **not** show hidden reasoning, model internals or token-level steps.
-It sees what the Mods API exposes: each tool call's name, arguments, agent,
-permission verdict and result. It is local-first: no network calls, no model
-calls, no telemetry.
+## The problem
+
+**Claude Code acts on its own, one tool call after another.** Permission rules
+decide *whether* a call may run. They don't let you stop the agent at a point
+you choose, look at what it is about to do, and step through it.
+
+- **No breakpoints.** You can't say "stop before any `npm publish`", "stop whenever it touches `src/auth/**`" or "stop on the next call after a failure", then decide with the full call in front of you.
+- **Failures are one line.** `EPERM: operation not permitted` scrolls past. Was the file locked? Did the parent folder exist? Did the write land anyway? Claude retries, and you guess.
+- **No record.** What ran, in what order, which permission rule applied, and what failed is spread across the scrollback.
+
+## The solution
+
+**Claude DevTools is a debugger for the agent's tool level**, built on Claude Code's native Mods API.
+
+| In Claude Code today | With Claude DevTools |
+| --- | --- |
+| A permission prompt per call, allow or deny | **Breakpoints** on tools, command patterns, path globs and failures. **Continue**, **Step** (pause on the next call too) or **Reject** with a note Claude reads |
+| `Bash(npm test)` in the transcript | A **"break on" gutter** under every tool row, like clicking a line number in Chrome DevTools, plus a one-key bar above the prompt |
+| `Error: EPERM: operation not permitted` | **Error Lens**: the kind of failure, what is ✔ confirmed, ? possible or · unknown, each with its evidence, read-only file checks, and fixes to try |
+| The same error, again and again | Repeats **grouped** and counted. A notification for the first, then every fifth |
+| Scrollback | A **timeline** and **inspector**: status, duration, agent, permission verdict and breakpoint of every call |
+| Copying from the terminal | **Sanitized exports**, versioned JSON and Markdown, with secrets redacted and file contents omitted |
+
+**Native mod. No wrappers, no API keys, no network calls, no model calls. Two commands to install.**
+
+It works at the tool level only. It does **not** show hidden reasoning, model
+internals or token-level steps. It sees what the Mods API exposes: each tool
+call's name, arguments, agent, permission verdict and result. It never
+approves anything: Claude Code's permission rules still decide after you
+press Continue.
+
+> [!TIP]
+> If Claude DevTools saves you a bad `git push` or an hour of guessing at an error, **a ⭐ on the repo** helps other developers find it.
 
 Claude DevTools is a community project. It is not made or endorsed by Anthropic.
 
