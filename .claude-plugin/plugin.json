@@ -1,0 +1,100 @@
+{
+  "name": "agent-devtools",
+  "displayName": "Claude DevTools",
+  "version": "0.1.0",
+  "description": "A debugger for Claude Code tool calls: breakpoints, pause/continue/reject/step, a timeline, an inspector, Error Lens failure diagnosis and sanitized trace exports.",
+  "author": { "name": "NMenzel", "url": "https://github.com/NMenzel" },
+  "homepage": "https://github.com/NMenzel/claude-devtools-mod",
+  "repository": "https://github.com/NMenzel/claude-devtools-mod",
+  "license": "MIT",
+  "keywords": ["claude-code", "claude-code-mod", "claude-code-plugin", "debugger", "breakpoints", "tool-calls", "error-diagnosis", "trace", "tui"],
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "recording": {
+      "type": "boolean",
+      "title": "Record the timeline",
+      "description": "Record observed tool calls in the session timeline when no saved preference exists.",
+      "default": true
+    },
+    "maxTimelineEntries": {
+      "type": "number",
+      "title": "Timeline size",
+      "description": "How many events the in-memory timeline keeps (oldest dropped first).",
+      "default": 500,
+      "min": 10,
+      "max": 5000
+    },
+    "maxSummaryChars": {
+      "type": "number",
+      "title": "Summary length",
+      "description": "Longest input or result summary kept per event, in characters.",
+      "default": 160,
+      "min": 40,
+      "max": 2000
+    },
+    "defaultScope": {
+      "type": "string",
+      "title": "Default breakpoint scope",
+      "description": "Which agents a new breakpoint applies to when none is given.",
+      "options": ["all", "main", "subagents"],
+      "default": "all"
+    },
+    "headlessPause": {
+      "type": "string",
+      "title": "Headless pause policy",
+      "description": "What a pause breakpoint does when nobody can answer (claude -p, SDK): reject the call, or only record it.",
+      "options": ["reject", "record-only"],
+      "default": "reject"
+    },
+    "simulation": {
+      "type": "boolean",
+      "title": "Allow simulated results",
+      "description": "Offer 'Simulate' at a breakpoint for allowlisted tools. Off by default; simulated results are always labeled.",
+      "default": false
+    },
+    "redaction": {
+      "type": "boolean",
+      "title": "Redact secrets",
+      "description": "Redact credentials, tokens and environment values from the timeline and exports.",
+      "default": true
+    },
+    "captureRaw": {
+      "type": "boolean",
+      "title": "Capture raw inputs and outputs (privacy risk)",
+      "description": "Also keep raw tool inputs and outputs (still truncated, redacted unless redaction is off). May capture file contents.",
+      "default": false
+    },
+    "persistBreakpoints": {
+      "type": "boolean",
+      "title": "Persist breakpoints",
+      "description": "Save breakpoint rules and the debugger mode across sessions in the plugin store.",
+      "default": true
+    },
+    "inlineControls": {
+      "type": "string",
+      "title": "Inline breakpoint controls",
+      "description": "The 'break on' controls under tool rows and the bar above the prompt: shown on hover, always, or off.",
+      "options": ["hover", "always", "off"],
+      "default": "hover"
+    },
+    "openOnStart": {
+      "type": "boolean",
+      "title": "Open the dashboard on start",
+      "description": "Open the DevTools dashboard when an interactive session starts (seated only where it docks, 144+ columns).",
+      "default": true
+    },
+    "errorLens": {
+      "type": "string",
+      "title": "Error Lens",
+      "description": "Diagnose failed tool calls: 'probe' also makes read-only file checks (stat only, never contents), 'classify' uses the result alone, 'off' disables it. Never retries or changes a call.",
+      "options": ["probe", "classify", "off"],
+      "default": "probe"
+    },
+    "errorToasts": {
+      "type": "boolean",
+      "title": "Error Lens notifications",
+      "description": "Show a one-line notification when a tool call fails (the first of a kind, then every fifth repeat).",
+      "default": true
+    }
+  }
+}
