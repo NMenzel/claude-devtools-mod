@@ -81,7 +81,7 @@ import { type Offer, renderBar, renderGutter } from '../src/ui/inline.tsx'
 import type { Layout } from '../src/ui/model.ts'
 import { type PaneActions, renderPane } from '../src/ui/pane.tsx'
 
-const VERSION = '0.1.1'
+const VERSION = '0.1.2'
 const PANE = 'devtools'
 
 // The $.state values kept for the session (declared in ../types/index.d.ts):
@@ -661,6 +661,8 @@ function helpText(): string {
     '/devtools-export [path] [--md]    write a sanitized JSON trace (and a Markdown report)',
     '/devtools-errors [clear]  Error Lens: why recent calls failed (confirmed / possible / unknown), with fixes',
     '',
+    'Short aliases: /bp <rule> (/bp alone lists) · /bpl list · /bpn pause next · /bpc continue · /bpe errors',
+    '',
     'Rules:',
     ...SPEC_HELP.map(line => `  ${line}`),
     '',
@@ -784,11 +786,24 @@ async function registerCommands($: Dollar): Promise<void> {
     immediate: true,
   })
   await $.command.register({ name: 'devtools-help', description: 'Claude DevTools: usage and the breakpoint rule language', immediate: true })
+  // Short aliases.
+  await $.command.register({
+    name: 'bp',
+    description: 'DevTools: add a breakpoint (= /devtools-break); no rule lists them',
+    argumentHint: 'command npm install | file .env* | tool Bash | delete <id>',
+    immediate: true,
+  })
+  await $.command.register({ name: 'bpl', description: 'DevTools: list breakpoints (= /devtools-list)', immediate: true })
+  await $.command.register({ name: 'bpn', description: 'DevTools: pause on the next tool call (= /devtools-pause)', immediate: true })
+  await $.command.register({ name: 'bpc', description: 'DevTools: continue, disarm pause-next and stepping (= /devtools-continue)', immediate: true })
+  await $.command.register({ name: 'bpe', description: 'DevTools: Error Lens, why recent calls failed (= /devtools-errors)', argumentHint: '[clear]', immediate: true })
 }
+
+const ALIASES: Readonly<Record<string, string>> = { bp: 'devtools-break', bpl: 'devtools-list', bpn: 'devtools-pause', bpc: 'devtools-continue', bpe: 'devtools-errors' }
 
 async function runCommand($: Dollar, command: string, rawArgs: string): Promise<{ text: string }> {
   const args = rawArgs.trim()
-  switch (command) {
+  switch (ALIASES[command] ?? command) {
     case 'devtools': {
       const session = await read($, SESSION)
       if (!session.isInteractive) return { text: await statusText($) }
@@ -809,7 +824,7 @@ async function runCommand($: Dollar, command: string, rawArgs: string): Promise<
         await forgetHits($, 'all')
         return { text: 'Deleted every breakpoint.' }
       }
-      if (args === '') return { text: `Usage: /devtools-break <rule>\n${SPEC_HELP.map(line => `  ${line}`).join('\n')}` }
+      if (args === '') return { text: `${listText(await liveSettings($))}\n\nUsage: /bp <rule> (or /devtools-break <rule>)\n${SPEC_HELP.map(line => `  ${line}`).join('\n')}` }
       const added = await addBreakpoint($, args)
       if (!added.ok) return { text: `Breakpoint not added: ${added.error}.` }
       const settings = await loadSettings($)
@@ -1010,6 +1025,11 @@ export const register: Register = (on, rawOptions) => {
         'devtools-export',
         'devtools-errors',
         'devtools-help',
+        'bp',
+        'bpl',
+        'bpn',
+        'bpc',
+        'bpe',
       ],
     },
     async ($, e) => runCommand($, e.command, e.args),

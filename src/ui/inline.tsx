@@ -55,15 +55,46 @@ export function renderGutter(els: Table, drawn: RenderElement, matched: readonly
 
 const BAR_HOTKEY: Record<Suggestion['id'], string> = { tool: 't', command: 'c', path: 'f' }
 
-export const BAR_HINT = '/devtools-break <rule> · /devtools-help'
-/** Longest first: the bar shows the longest that still fits on its line, so it never wraps. */
-const HINTS = [BAR_HINT, '/devtools-break <rule>', '/devtools-help']
+export const BAR_HINT = '/bp <rule> · /devtools-help'
+/** Longest first: the bar shows the longest that still fits on its line. */
+const HINTS = [BAR_HINT, '/bp <rule>']
 /** A plain Button with a hotkey draws `t: label`. */
 const BUTTON_EXTRA = 3
+/** Cells the engine keeps at the band's right edge (its `[−]` fold control). */
+const EDGE = 4
+const BREAK_ON = '· break on'
 
-/** The hint that still fits on the bar's line, if any. */
-export function barHint(width: number, used: number): string | undefined {
-  return HINTS.find(hint => width - used >= hint.length + 3)
+/** What the bar shows, so that it always fits one line. */
+export type BarFit = { summary?: string; offers: number; lens: boolean; hide: boolean; open: boolean; hint?: string }
+
+/**
+ * Lays the bar out on one line, never wrapping: the brand and status first,
+ * then each part in order of importance (the breakpoint keys, the Error Lens
+ * key, hide, open, the call's summary, the hint), each only if the rest of the
+ * line still has room for it.
+ */
+export function fitBar(width: number, summary: string, offerLabels: readonly string[], lens: string | undefined): BarFit {
+  let room = width - EDGE - 'DevTools'.length - 2
+  const take = (cells: number): boolean => (cells <= room ? ((room -= cells), true) : false)
+  const button = (label: string): number => 1 + BUTTON_EXTRA + label.length
+  let offers = 0
+  if (offerLabels.length > 0 && take(1 + BREAK_ON.length)) {
+    for (const label of offerLabels) {
+      if (!take(button(label))) break
+      offers += 1
+    }
+    // "break on" with no key after it says nothing.
+    if (offers === 0) room += 1 + BREAK_ON.length
+  }
+  const showLens = lens !== undefined && take(button(lens))
+  const hide = take(button('hide'))
+  const open = take(button('DevTools'))
+  // The summary gets what is left, at most a third of the line; cut below 12 cells it tells nothing.
+  const cells = Math.min(summary.length, Math.floor(width / 3), room - 1)
+  const shown = cells > 0 && cells >= Math.min(12, summary.length) ? truncate(summary, cells) : undefined
+  if (shown !== undefined) room -= 1 + shown.length
+  const hint = HINTS.find(text => take(3 + text.length))
+  return { offers, lens: showLens, hide, open, ...(shown !== undefined ? { summary: shown } : {}), ...(hint !== undefined ? { hint } : {}) }
 }
 
 /**
@@ -89,40 +120,32 @@ export function renderBar(
             DevTools
           </Text>
           <Text dimColor wrap="truncate-end">
-            {truncate(`· press "break on" under any tool call, or ${BAR_HINT}`, cells - 9)}
+            {truncate(`· press "break on" under any tool call, or ${BAR_HINT}`, cells - EDGE - 9)}
           </Text>
         </Box>
       </Box>
     )
   }
-  const summary = truncate(`${event.tool} ${event.inputSummary}`, Math.max(16, Math.floor(width / 3)))
   const lens = event.errorCategory !== undefined ? `✗ why? (${event.errorCategory})` : undefined
-  const labels = [...offers.map(offerLabel), ...(lens !== undefined ? [lens] : []), 'DevTools', 'hide']
-  const used = 'DevTools'.length + 2 + 2 + summary.length + 1 + '· break on'.length + labels.reduce((sum, label) => sum + label.length + 1 + BUTTON_EXTRA, 0)
-  const hint = barHint(cells, used)
+  const fit = fitBar(cells, `${event.tool} ${event.inputSummary}`, offers.map(offerLabel), lens)
+  const keys = offers.slice(0, fit.offers)
   return (
     <Box flexDirection="column">
       {below}
-      <Box key="devtools-bar" flexDirection="row" columnGap={1} flexWrap="wrap" width={cells}>
+      <Box key="devtools-bar" flexDirection="row" columnGap={1} width={cells}>
         <Text color={C.brand} bold>
           DevTools
         </Text>
         <Text color={STATUS_COLOR[event.status]}>{statusIcon(event.status)}</Text>
-        <Text dimColor wrap="truncate-end">
-          {summary}
-        </Text>
-        <Text dimColor>· break on</Text>
-        {offers.map(offer => (
+        {fit.summary !== undefined && <Text dimColor>{fit.summary}</Text>}
+        {keys.length > 0 && <Text dimColor>{BREAK_ON}</Text>}
+        {keys.map(offer => (
           <Button key={`bar-${offer.id}`} hotkey={BAR_HOTKEY[offer.id]} plain dimColor={offer.rule === undefined} label={offerLabel(offer)} onPress={() => on.toggle(offer)} />
         ))}
-        {lens !== undefined && <Button key="bar-lens" hotkey="e" plain label={lens} onPress={() => on.lens()} />}
-        <Button key="bar-open" hotkey="d" plain dimColor label="DevTools" onPress={() => on.open()} />
-        <Button key="bar-hide" hotkey="x" plain dimColor label="hide" onPress={() => on.hide()} />
-        {hint !== undefined && (
-          <Text key="bar-hint" dimColor>
-            {`· ${hint}`}
-          </Text>
-        )}
+        {fit.lens && lens !== undefined && <Button key="bar-lens" hotkey="e" plain label={lens} onPress={() => on.lens()} />}
+        {fit.open && <Button key="bar-open" hotkey="d" plain dimColor label="DevTools" onPress={() => on.open()} />}
+        {fit.hide && <Button key="bar-hide" hotkey="x" plain dimColor label="hide" onPress={() => on.hide()} />}
+        {fit.hint !== undefined && <Text dimColor>{`· ${fit.hint}`}</Text>}
       </Box>
     </Box>
   )

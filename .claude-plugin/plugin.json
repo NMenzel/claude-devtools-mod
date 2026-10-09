@@ -1,7 +1,7 @@
 {
   "name": "devtools",
   "displayName": "Claude DevTools",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "A debugger for Claude Code tool calls: breakpoints, pause/continue/reject/step, a timeline, an inspector, Error Lens failure diagnosis and sanitized trace exports.",
   "author": { "name": "NMenzel", "url": "https://github.com/NMenzel" },
   "homepage": "https://github.com/NMenzel/claude-devtools-mod",

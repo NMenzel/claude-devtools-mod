@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.2
+
+- Short aliases: `/bp <rule>` (= `/devtools-break`; `/bp` alone lists the breakpoints), `/bpl`, `/bpn`, `/bpc`, `/bpe`.
+- The bar above the prompt never wraps. On a narrow line the hint, the call's summary, `DevTools` and `hide` give way in that order; the breakpoint keys and `why?` stay. The hint is now `/bp <rule> · /devtools-help`.
+- `/devtools-break` with no rule lists the breakpoints above the usage.
+- README: a demo recording.
+
 ## 0.1.1
 
 - The "break on" controls show by default as one dim line under every tool row (`inlineControls` now defaults to `always`; `hover` is still available). An installed copy keeps the value it saved, so set it in `/config`.

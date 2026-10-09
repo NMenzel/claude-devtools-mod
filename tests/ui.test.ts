@@ -4,7 +4,7 @@
 
 import { describe, type Engine, expect, test } from 'claude-code/testing'
 
-import { BAR_HINT, barHint } from '../src/ui/inline.tsx'
+import { BAR_HINT, type BarFit, fitBar } from '../src/ui/inline.tsx'
 import { dialog, engineDraws, start, tools, world } from './kit.ts'
 
 const PANE = {
@@ -346,14 +346,14 @@ describe('breakpoints from the transcript', () => {
     // Before the first call: only a dim hint, how to set a breakpoint and where help is.
     const empty = await $.ui.mount({ ...BAND, surface: 'terminal' })
     expect(await empty.find({ type: 'Button' })).toBeUndefined()
-    expect(await empty.find({ type: 'Text', text: /\/devtools-break <rule> · \/devtools-help/ })).toMatchObject({ props: { dimColor: true } })
+    expect(await empty.find({ type: 'Text', text: /\/bp <rule> · \/devtools-help/ })).toMatchObject({ props: { dimColor: true } })
     await empty.unmount()
 
     await $.tool.call({ tool: 'Bash', command: 'git push origin main' })
     const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
     expect(await ui.find({ type: 'Text', text: 'drawn by Claude Code' })).toBeDefined()
     // At 120 columns the longest hint that keeps the bar on one line.
-    expect(await ui.find({ type: 'Text', text: '· /devtools-break <rule>' })).toMatchObject({ props: { dimColor: true } })
+    expect(await ui.find({ type: 'Text', text: '· /bp <rule>' })).toMatchObject({ props: { dimColor: true } })
     const command = await ui.find({ type: 'Button', key: 'bar-command' })
     expect(command?.text).toBe('○ "git push"')
     expect(command?.props.hotkey).toBe('c')
@@ -368,11 +368,25 @@ describe('breakpoints from the transcript', () => {
     await ui.unmount()
   })
 
-  test('the bar hint shrinks to fit its line, and disappears before it would wrap', () => {
-    expect(barHint(200, 94)).toBe(BAR_HINT)
-    expect(barHint(120, 94)).toBe('/devtools-break <rule>')
-    expect(barHint(112, 94)).toBe('/devtools-help')
-    expect(barHint(110, 94)).toBeUndefined()
+  test('the bar always fits one line: parts drop in order of importance', () => {
+    // Cells a fit takes, as the bar draws it: brand and icon, then each shown part with its gap.
+    const cells = (fit: BarFit, labels: string[], lens?: string): number =>
+      8 + 2 +
+      (fit.summary !== undefined ? 1 + fit.summary.length : 0) +
+      (fit.offers > 0 ? 11 + labels.slice(0, fit.offers).reduce((n, label) => n + 4 + label.length, 0) : 0) +
+      (fit.lens && lens !== undefined ? 4 + lens.length : 0) +
+      (fit.hide ? 8 : 0) +
+      (fit.open ? 12 : 0) +
+      (fit.hint !== undefined ? 3 + fit.hint.length : 0)
+    const labels = ['○ Bash', '○ "git add"']
+    const lens = '✗ why? (debugger)'
+    // The recording's 86-column bar: keys, why? and hide stay; open, summary and hint give way.
+    expect(fitBar(86, 'Bash git add README.md && git commit -m x', labels, lens)).toEqual({ offers: 2, lens: true, hide: true, open: false })
+    expect(fitBar(200, 'Bash ls', ['○ Bash'], undefined)).toEqual({ offers: 1, lens: false, hide: true, open: true, summary: 'Bash ls', hint: BAR_HINT })
+    for (let width = 24; width <= 200; width += 1) {
+      const fit = fitBar(width, 'Bash git add README.md && git commit -m x', labels, lens)
+      expect(cells(fit, labels, lens)).toBeLessThanOrEqual(width - 4)
+    }
   })
 
   test('the bar yields to a survey', async ($, on) => {
@@ -404,6 +418,24 @@ describe('commands as the text interface', () => {
     dialog(on, [])
     await start($)
     expect(w.opened).toEqual([])
+  })
+
+  test('short aliases: /bp, /bpl, /bpn, /bpc and /bpe answer as their long forms', async ($, on) => {
+    const w = world(on)
+    tools(on, () => ({ isError: true, result: 'x', text: 'File does not exist.' }))
+    dialog(on, [])
+    await start($)
+    expect(w.commands).toEqual(expect.arrayContaining(['bp', 'bpl', 'bpn', 'bpc', 'bpe']))
+    expect(await run($, 'bp', 'command npm install')).toContain('Added bp1 command npm install')
+    const bare = await run($, 'bp')
+    expect(bare).toContain('bp1 ● command npm install')
+    expect(bare).toContain('Usage: /bp <rule>')
+    expect(await run($, 'bpl')).toContain('bp1 ● command npm install')
+    expect(await run($, 'bpn')).toBe('The next tool call will pause.')
+    expect(await run($, 'bpc')).toContain('Disarmed')
+    expect(await run($, 'bpe')).toBe('Error Lens: no failed tool calls this session.')
+    expect(await run($, 'bp', 'delete bp1')).toContain('Deleted bp1')
+    expect(await run($, 'devtools-help')).toContain('Short aliases: /bp <rule>')
   })
 
   test('status, list, help and break subcommands', async ($, on) => {

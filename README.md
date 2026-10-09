@@ -24,6 +24,10 @@
   <a href="#install">Install</a> · <a href="#use-it">Use it</a> · <a href="#error-lens-why-a-tool-call-failed">Error Lens</a> · <a href="#commands">Commands</a> · <a href="#options">Options</a> · <a href="docs/SECURITY.md">Security</a>
 </p>
 
+<p align="center">
+  <img src="docs/media/demo.gif" alt="Claude DevTools in a live session: /devtools-break command git push sets a breakpoint, Claude's git push is held and rejected, and the Error Lens tab explains what happened" width="900">
+</p>
+
 ---
 
 ## The problem
@@ -132,6 +136,7 @@ Notes for agents:
 
 ```text
 /devtools-break command npm install        # pause before any `npm install`
+/bp command git push                       # the same, short: /bp is /devtools-break
 /devtools-break file src/auth/**           # pause before reading/editing auth code
 /devtools-break tool Write,Edit --action warn
 /devtools-break error Bash --action pause   # after a failed Bash call, pause the next call
@@ -158,7 +163,7 @@ inside Claude Code's own dialog, so the wait never times out the hook.
 There are three ways to set a breakpoint without typing a rule.
 
 - **The transcript gutter.** Under every tool row (`Bash(npm test)`, `Read(src/auth/login.ts)`, a folded "Read 3 files, searched 2 patterns" line) sits one dim line: `break on ○ Bash ○ "npm test" ○ src/x.ts`. Press one to set a pause breakpoint on that tool, that command (program and subcommand), or that path. Press it again to remove it. A row that a breakpoint covers gets a red `● breakpoint bp1 …` line. Clicks need a pointer (the fullscreen terminal or Claude Desktop); the bar below works by keyboard everywhere. Set `inlineControls` to `hover` to show the controls only while the pointer is over a row, or `off`.
-- **The bar above the prompt.** It shows the latest call: `DevTools ✓ Bash git push origin main · break on ○ Bash ○ "git push" · DevTools · hide`. Press ctrl+x tab to focus it, then `t` for the tool, `c` for the command, `f` for the path, `d` to open the dashboard and `x` to hide it. When that call failed, `e` (`✗ why?`) opens its Error Lens. A dim hint at its end names `/devtools-break <rule>` and `/devtools-help`, as far as the line has room; before the first tool call the bar is that hint alone. This works on every terminal layout, keyboard only.
+- **The bar above the prompt.** It shows the latest call: `DevTools ✓ Bash git push origin main · break on ○ Bash ○ "git push" · DevTools · hide`. Press ctrl+x tab to focus it, then `t` for the tool, `c` for the command, `f` for the path, `d` to open the dashboard and `x` to hide it. When that call failed, `e` (`✗ why?`) opens its Error Lens. A dim hint at its end names `/bp <rule>` and `/devtools-help`. The bar never wraps: when the line is narrow, the hint, the call's summary, `DevTools` and `hide` give way in that order, and the breakpoint keys and `why?` stay. Before the first tool call the bar is the hint alone. This works on every terminal layout, keyboard only.
 - **Category toggles**, like Chrome's event-listener breakpoints: `pause on ■ Shell □ Read □ Search □ Edit □ Web □ Agents`. They are on the dashboard and the Breakpoints tab, and each one adds or removes a tool breakpoint for the whole family.
 
 The Inspector has the same `break on` buttons for any recorded call, on keys `1` `2` `3`.
@@ -241,6 +246,8 @@ Built-in tools flag their own errors, so they are never judged this way.
 | `/devtools-errors [clear]` | Error Lens: the failure kinds this session and the latest failure's diagnosis. Opens the Errors tab when interactive |
 | `/devtools-export [path.json\|path.md] [--md]` | Write a sanitized JSON trace (and a Markdown report). Default: `.claude-devtools/trace-<time>.json` in the working directory |
 | `/devtools-help` | Usage and the rule language |
+| `/bp <rule>` | Short for `/devtools-break`; `/bp` alone lists the breakpoints and the rule language |
+| `/bpl` · `/bpn` · `/bpc` · `/bpe` | Short for `/devtools-list`, `/devtools-pause` (next call), `/devtools-continue` and `/devtools-errors` |
 
 All of these run immediately, even while Claude is working.
 
@@ -309,7 +316,7 @@ Set them in `/config`, or at install time with `claude plugin install ... --conf
 ```bash
 npm install                      # local TypeScript only; nothing global
 claude plugin validate .         # manifest, hooks, calls, state contract
-claude plugin test .             # 145 tests: pure engine + real hooks and UI through claude-code/testing
+claude plugin test .             # 146 tests: pure engine + real hooks and UI through claude-code/testing
 npx tsc -p .                     # type-check (after one load has laid .claude-plugin/types)
 ```
 

@@ -1,6 +1,6 @@
 {
   "name": "devtools",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "description": "Claude DevTools: a Claude Code Mod that debugs agent tool calls.",
   "license": "MIT",
