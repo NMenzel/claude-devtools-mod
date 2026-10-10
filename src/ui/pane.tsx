@@ -1,5 +1,5 @@
 // The DevTools pane: a header and legend, then the Dashboard, Timeline,
-// Inspector, Breakpoints and Errors tabs. Pure view: it draws from a model and calls
+// Inspector, Breakpoints, Errors and Permissions tabs. Pure view: it draws from a model and calls
 // the actions it is handed; every write happens in the native layer.
 
 import type { RenderElement } from 'claude-code'
@@ -11,6 +11,7 @@ import { formatDuration, statusIcon } from '../core/recorder.ts'
 import { findRule, suggestBreakpoints } from '../core/suggest.ts'
 import { categoryRow, dashboard, timelineLine } from './dashboard.tsx'
 import { errorsView } from './lens.tsx'
+import { permissionsView } from './permissions.tsx'
 import type { PaneActions, PaneModel, Table } from './model.ts'
 import { C, LEGEND, MODE_COLOR, NEXT_MODE, STATUS_COLOR } from './theme.ts'
 
@@ -23,6 +24,7 @@ const TABS: ReadonlyArray<readonly [DevtoolsTab, string, string]> = [
   ['inspector', 'Inspector', 'i'],
   ['breakpoints', 'Breakpoints', 'b'],
   ['errors', 'Errors', 'e'],
+  ['permissions', 'Permissions', 'a'],
 ]
 
 /** The newest-first page of the timeline the Timeline tab shows. */
@@ -76,7 +78,7 @@ export function renderPane(els: Table, m: PaneModel, act: PaneActions): RenderEl
         {TABS.map(([tab, label, hotkey]) => (
           <Button
             key={`tab-${tab}`}
-            label={tab === 'errors' && m.lens.length > 0 ? `${label} ${m.lens.length}` : label}
+            label={tab === 'errors' && m.lens.length > 0 ? `${label} ${m.lens.length}` : tab === 'permissions' && m.denials.length > 0 ? `${label} ${m.denials.length}` : label}
             hotkey={hotkey}
             plain
             dimColor={m.view.tab !== tab}
@@ -89,6 +91,7 @@ export function renderPane(els: Table, m: PaneModel, act: PaneActions): RenderEl
       {m.view.tab === 'inspector' && inspector(els, m, act, width)}
       {m.view.tab === 'breakpoints' && breakpoints(els, m, act, width)}
       {m.view.tab === 'errors' && errorsView(els, m, act, width)}
+      {m.view.tab === 'permissions' && permissionsView(els, m, act, width)}
       {m.view.notice !== undefined && (
         <Text key="notice" color={C.paused} wrap="truncate-end">
           {m.view.notice}

@@ -17,7 +17,10 @@ two differ, the installed declarations win.
 | Know whether anyone can answer | `session.start` input `isInteractive` | d.ts `SessionStartInput` |
 | Fail closed | `on(...).catch(handler)` with `next.called` / `next.error.kind` (`throw`, `timeout`, `re-entry`) | d.ts `Caught`, `HookFailure`; `claude plugin validate` lists `gating hook with .catch: tool.call` |
 | Interrupted turn | `next.signal` (`AbortSignal`) | d.ts `Next.signal` |
-| Permission verdict | `on('tool.check')` observes `{ decision, rule, reason }` per `tool_use_id`. `$.tool.check({ tool, input })` previews without running | d.ts `ToolCheckResult`, `EventCalls.tool.check` |
+| Permission verdict | `on('tool.check')` observes `{ decision, rule, reason, hook }` per `tool_use_id`; `onward.trace` shows a mod beneath that changed it. `$.tool.check({ tool, input })` previews without running | d.ts `ToolCheckResult`, `EventCalls.tool.check`, `TraceEntry` |
+| Who refused a call | `next.trace` after `next(e)` in `tool.call`: each link's `plugin`, `tier` and `returned`; the innermost `{ deny }` is the refuser (`engine` / `core` is Claude Code) | d.ts `TraceEntry`, `Tier`; tested with inline plugins in the `prepend` and `append` tiers |
+| Refusals above DevTools | `on('session.append', { door: 'tool-result' })`: the stored tool_result blocks (`tool_use_id`, `is_error`, `content`), `origin.tool` | d.ts `SessionAppendInput`, `SessionAppendOrigin` |
+| Permission rules | `$.settings.read({ source })` for `policy`, `flag`, `local`, `project`, `user`: each file's `permissions` (`allow`, `ask`, `deny`, `defaultMode`, `additionalDirectories`) | d.ts `SettingsReadArgs`, `SettingsSource`, `Settings` |
 | Subagent identity | `e.agentId` (absent on the main loop) | d.ts `AgentLoop` |
 | Commands | `$.command.register({ name, description, argumentHint, immediate })` in `session.start`; `command.run` matcher with literal names | d.ts `CommandSpec`; validate: `answers its own command` |
 | Pane | `$.ui.open({ id, title, focus })` + `ui.render` on `{ component: 'Pane', requestId }`; props `bodyColumns`, `placement`, `scroll.bodyRows` | d.ts `RenderPropsOf.Pane`, `PaneOpenArgs` |
@@ -32,7 +35,7 @@ two differ, the installed declarations win.
 | Error Lens checks | `$.fs.stat(path, { resolve: true })`: kind, size, mtimeMs, isLink, realPath; rejects `ENOENT` when missing. No permission bits, owner or lock state | d.ts `FsStat`, `fs.stat` |
 | Work after the hook returns | `$.clock.after(0, fn)`: `fn` runs in the plugin's environment once the wait resolves | d.ts `clock.after`, `TimerCall` |
 | Toasts | `$.ui.toast(text, { timeoutMs })`: text only, no buttons | d.ts `ToastOptions` |
-| Tests | `claude-code/testing`: `test`, `expect`, `mock.clock`, stubs via the test's `on`, `$.ui.mount` per surface | d.ts `declare module 'claude-code/testing'`; 150 tests pass |
+| Tests | `claude-code/testing`: `test`, `expect`, `mock.clock`, stubs via the test's `on`, `$.ui.mount` per surface | d.ts `declare module 'claude-code/testing'`; 174 tests pass |
 
 ## Constraints discovered (all handled)
 
@@ -55,6 +58,8 @@ two differ, the installed declarations win.
 | A command that releases a held call | The question dialog holds the keyboard while a call is held. No API resolves another hook's pending `ask` | The dialog is the control. `/devtools-continue` disarms pause-next and step for later calls |
 | Pausing a call after it completed | Impossible by design | Error breakpoints arm a pause on the **next** call |
 | The person's answer to the permission prompt itself | Not reported separately | The `tool.check` verdict (allow/ask/deny + rule) is recorded. A rejected prompt is inferred from the error text (documented heuristic) |
+| The session's live permission mode (after Shift+Tab) | No API reads it | The Permissions tab shows the settings' `defaultMode`; a refusal by the mode is named from the verdict's reason |
+| Which mod refused a call when it sits before DevTools in the chain | Its refusal never reaches DevTools' `tool.call` hook, and a stored tool result names no plugin | Caught from the stored tool result; the mod is marked possible, read from the refusal's leading `name:` |
 | Synthetic *successful* results for writes or other side effects | Disallowed by policy | `fail` for allowlisted tools; `stub` only for read-only shell commands |
 | Drawing in the VS Code chat panel or `claude -p` | Hooks run, nothing draws | Text commands |
 | A notification with an "Inspect" button | `$.ui.toast` takes text only | The toast names `/devtools-errors`; the bar above the prompt gets `e` (why?) for a failed latest call |

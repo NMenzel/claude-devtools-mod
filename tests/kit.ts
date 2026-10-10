@@ -18,6 +18,10 @@ export type World = {
   files: Map<string, { kind: 'file' | 'dir' | 'other'; size: number; mtimeMs: number }>
   /** Every path $.fs.stat was asked about. */
   statted: string[]
+  /** What $.settings.read answers, by source (`user`, `project`, ...); a missing source reads as {}. */
+  settings: Record<string, unknown>
+  /** What the permission check (tool.check) answers. */
+  verdict: { decision: 'allow' | 'ask' | 'deny'; rule?: string; reason?: string; hook?: string }
 }
 
 /**
@@ -37,7 +41,10 @@ export function world(on: On, seed: Record<string, unknown> = {}, withClock = tr
     checks: 0,
     files: new Map(),
     statted: [],
+    settings: {},
+    verdict: { decision: 'ask', reason: 'test rules ask' },
   }
+  on('settings.read', ($, e) => ({ value: (w.settings[e.source ?? 'merged'] ?? {}) as Record<string, unknown> }))
   on('store.get', ($, e) => ({ value: w.store.get(e.key) }))
   on('store.set', ($, e) => {
     w.store.set(e.key, JSON.parse(JSON.stringify(e.value)))
@@ -79,7 +86,7 @@ export function world(on: On, seed: Record<string, unknown> = {}, withClock = tr
   })
   on('tool.check', () => {
     w.checks += 1
-    return { decision: 'ask', reason: 'test rules ask' }
+    return { ...w.verdict }
   })
   on('session.start', () => ({ cwd: '/work' }))
   return w

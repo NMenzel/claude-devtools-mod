@@ -4,6 +4,7 @@ import type { Elements, RenderSurface } from 'claude-code'
 
 import type {
   ArmState,
+  Denial,
   DevtoolsMode,
   DevtoolsSettings,
   DevtoolsStats,
@@ -11,6 +12,7 @@ import type {
   ErrorGroup,
   LensRecord,
   PendingCall,
+  PermissionsSnapshot,
   SessionInfo,
   TraceEvent,
   ViewState,
@@ -36,6 +38,10 @@ export type PaneModel = {
   lens: readonly LensRecord[]
   /** Error Lens: failures grouped by signature, most recent first. */
   groups: readonly ErrorGroup[]
+  /** Permissions: refused calls with who refused them, oldest first. */
+  denials: readonly Denial[]
+  /** Permissions: the permission settings as last read. */
+  permissions: PermissionsSnapshot
   options: DevtoolsOptions
   /** Cells across the pane body. */
   columns: number
@@ -66,4 +72,9 @@ export type PaneActions = {
   /** Shows one failure in the Errors tab. */
   openLens: (id: string) => void
   clearErrors: () => void
+  /** Reads the permission settings again. */
+  reloadPermissions: () => void
+  /** Shows a refused call where its detail is: Error Lens, else the Inspector. */
+  openDenial: (id: string) => void
+  clearDenials: () => void
 }

@@ -13,6 +13,7 @@ import type { EngineInterface, Register, TraceEntry } from 'claude-code'
 import type {
   ArmState,
   Breakpoint,
+  Denial,
   DevtoolsMode,
   DevtoolsSettings,
   DevtoolsStats,
@@ -21,6 +22,9 @@ import type {
   PauseDecision,
   PendingCall,
   PermissionInfo,
+  PermissionsSnapshot,
+  Refusal,
+  SettingsSourceName,
   TraceEvent,
   TraceOutcome,
   TraceStatus,
@@ -74,6 +78,17 @@ import {
   serializeExport,
   statusIcon,
 } from '../src/core/recorder.ts'
+import {
+  addDenial,
+  callDenier,
+  checkVerdict,
+  explainRefusal,
+  isEngine,
+  permissionsReport,
+  readPermissions,
+  SOURCES,
+  unseenRefusals,
+} from '../src/core/permissions.ts'
 import { checkSimulation, synthesize } from '../src/core/simulation.ts'
 import { type Category, findCategoryRule, findRule, type Suggestion, suggestBreakpoints, withHits } from '../src/core/suggest.ts'
 import { redactString } from '../src/security/redaction.ts'
@@ -81,7 +96,7 @@ import { type Offer, renderBar, renderGutter } from '../src/ui/inline.tsx'
 import type { Layout } from '../src/ui/model.ts'
 import { type PaneActions, renderPane } from '../src/ui/pane.tsx'
 
-const VERSION = '0.1.4'
+const VERSION = '0.2.0'
 const PANE = 'devtools'
 
 // The $.state values kept for the session (declared in ../types/index.d.ts):
@@ -105,6 +120,9 @@ const STATS = atom({ plugin: 'devtools', key: 'stats' } as const, {
 })
 const LENS = atom({ plugin: 'devtools', key: 'lens' } as const, [])
 const GROUPS = atom({ plugin: 'devtools', key: 'errorGroups' } as const, [])
+const DENIALS = atom({ plugin: 'devtools', key: 'denials' } as const, [])
+const UNREAD: PermissionsSnapshot = { readAtMs: 0, rules: [], directories: [], errors: [] }
+const PERMISSIONS = atom({ plugin: 'devtools', key: 'permissions' } as const, UNREAD)
 
 type Dollar = EngineInterface
 type ToolResult = { deny: string } | { result: unknown }
@@ -126,14 +144,23 @@ let summary: SummaryOptions = { maxChars: DEFAULT_OPTIONS.maxSummaryChars, redac
 const mirror: { settings?: DevtoolsSettings; arm?: ArmState; cwd?: string } = {}
 // tool.check verdicts by tool_use_id, consumed when the call finishes.
 const verdicts = new Map<string, PermissionInfo>()
+// The calls whose tool.call reached DevTools' hook, oldest first: a refused
+// tool result for any other call was refused above DevTools.
+const seenCalls = new Set<string>()
 let localSeq = 0
 
-/** Keeps the verdict a real call reached: the nearest result that settled beneath the tool.check hook. */
+/** Keeps the verdict a real call reached, and the mod that set it if one changed it beneath this hook. */
 function noteVerdict(toolUseId: string | undefined, trace: readonly TraceEntry<'tool.check'>[]): void {
-  const verdict = trace.find(link => link.returned !== undefined)?.returned
+  const verdict = checkVerdict(trace)
   if (toolUseId === undefined || verdict === undefined) return
   if (verdicts.size > 200) verdicts.clear()
-  verdicts.set(toolUseId, { decision: verdict.decision, rule: verdict.rule, reason: verdict.reason, source: 'observed' })
+  verdicts.set(toolUseId, verdict)
+}
+
+function noteSeen(toolUseId: string | undefined): void {
+  if (toolUseId === undefined) return
+  if (seenCalls.size >= 500) seenCalls.delete(seenCalls.values().next().value as string)
+  seenCalls.add(toolUseId)
 }
 
 function message(error: unknown): string {
@@ -366,6 +393,10 @@ async function refuse($: Dollar, event: TraceEvent, status: TraceStatus, outcome
   })
   await count($, status)
   const now = await $.clock.now()
+  if (status === 'denied') {
+    const refusal = explainRefusal({ outcome, text: redactIf(deny), seen: true })
+    await recordDenial($, { id: event.id, tool: event.tool, ...(event.agentId !== undefined ? { agentId: event.agentId } : {}), atMs: now, inputSummary: event.inputSummary, outcome, refusal })
+  }
   await captureFailure($, event, true, { startedMs: now, endedMs: now, status, outcome, text: deny })
   return { answer: { deny } }
 }
@@ -457,13 +488,25 @@ async function afterRun(
   result: ResultLike,
   preview: PermissionInfo | undefined,
   cwd: string | undefined,
+  denier: { plugin: string; tier: string } | undefined,
 ): Promise<void> {
   const endedMs = await $.clock.now()
   const observed = call.toolUseId === undefined ? undefined : verdicts.get(call.toolUseId)
   if (call.toolUseId !== undefined) verdicts.delete(call.toolUseId)
   const permission = observed ?? preview
-  const { status, outcome } = classifyResult(result, permission)
+  const { status, outcome } = classifyResult(result, permission, denier !== undefined && !isEngine(denier))
   const errorText = errorTextOf(result, summary)
+  let refusal: Refusal | undefined
+  if (status === 'denied') {
+    refusal = explainRefusal({
+      outcome,
+      text: redactIf(errorTextOfResult(result)),
+      ...(permission !== undefined ? { permission } : {}),
+      ...(denier !== undefined ? { denier } : {}),
+      seen: true,
+    })
+    await recordDenial($, { id: event.id, tool: call.tool, ...(call.agentId !== undefined ? { agentId: call.agentId } : {}), atMs: endedMs, inputSummary: event.inputSummary, outcome, refusal })
+  }
   const change: Partial<TraceEvent> = {
     status,
     outcome,
@@ -492,6 +535,7 @@ async function afterRun(
         text: errorTextOfResult(result),
         ...(suspected ? { suspected: true } : {}),
         ...(permission !== undefined ? { permission } : {}),
+        ...(refusal !== undefined ? { refusal } : {}),
       },
       content === undefined ? undefined : new TextEncoder().encode(content).length,
     )
@@ -524,6 +568,7 @@ type Failure = {
   text: string
   suspected?: true
   permission?: PermissionInfo
+  refusal?: Refusal
 }
 
 /**
@@ -549,6 +594,7 @@ async function captureFailure($: Dollar, event: TraceEvent, isRecorded: boolean,
       args: event.input ?? {},
       paths: event.paths ?? [],
       ...(failure.permission !== undefined ? { permission: failure.permission } : {}),
+      ...(failure.refusal !== undefined ? { refusal: failure.refusal } : {}),
       ...(contentBytes !== undefined ? { contentBytes } : {}),
       probing: options.errorLens,
     })
@@ -615,6 +661,73 @@ async function errorsText($: Dollar): Promise<string> {
   ].join('\n')
 }
 
+// ------------------------------------------------------------------ permissions
+
+/** Reads the permission settings from each settings file: read-only, nothing is ever written to them. */
+async function readPermissionSettings($: Dollar): Promise<PermissionsSnapshot> {
+  const bySource: Partial<Record<SettingsSourceName, unknown>> = {}
+  const errors: string[] = []
+  await Promise.all(
+    SOURCES.map(async source => {
+      try {
+        bySource[source] = await $.settings.read({ source })
+      } catch (error) {
+        errors.push(`${source}: ${truncate(message(error), 160)}`)
+      }
+    }),
+  )
+  const snapshot = readPermissions(bySource, errors, await $.clock.now(), redactIf)
+  await update($, PERMISSIONS, () => snapshot)
+  return snapshot
+}
+
+/** Keeps a refused call for the Permissions tab, whether or not the timeline records. */
+async function recordDenial($: Dollar, denial: Denial): Promise<void> {
+  await update($, DENIALS, list => addDenial(list, denial))
+}
+
+/** Refused tool results for calls whose tool.call never reached DevTools' hook: refused above it. */
+async function noteUnseenRefusals($: Dollar, content: readonly unknown[], tool: string, agentId: string | undefined): Promise<void> {
+  const found = unseenRefusals(content, id => seenCalls.has(id))
+  if (found.length === 0 || (await liveSettings($)).mode === 'off') return
+  const now = await $.clock.now()
+  for (const { toolUseId, text } of found) {
+    noteSeen(toolUseId)
+    await recordDenial($, {
+      id: toolUseId,
+      tool,
+      ...(agentId !== undefined ? { agentId } : {}),
+      atMs: now,
+      inputSummary: '',
+      outcome: 'blocked-by-hook',
+      refusal: explainRefusal({ outcome: 'blocked-by-hook', text: redactIf(text), seen: false }),
+    })
+  }
+}
+
+async function clearDenials($: Dollar): Promise<void> {
+  await update($, DENIALS, () => [])
+}
+
+async function permissionsText($: Dollar): Promise<string> {
+  const snapshot = await readPermissionSettings($)
+  const denials = await read($, DENIALS)
+  return ['Claude DevTools · Permissions (rules as read now; refused calls from this session)', ...permissionsReport(snapshot, denials)].join('\n')
+}
+
+async function showPermissions($: Dollar): Promise<void> {
+  await setView($, { tab: 'permissions' })
+  await readPermissionSettings($)
+}
+
+/** A refused call, opened where its detail is: Error Lens, else the Inspector. */
+async function openDenial($: Dollar, id: string): Promise<void> {
+  const [lens, trace] = await Promise.all([read($, LENS), read($, TRACE)])
+  if (lens.some(one => one.id === id)) await setView($, { tab: 'errors', lensId: id })
+  else if (trace.some(one => one.id === id)) await setView($, { tab: 'inspector', selectedId: id })
+  else await setView($, { notice: 'Refused before Claude DevTools saw the call: its reason is all there is.' })
+}
+
 // ------------------------------------------------------------------ commands
 
 async function statusText($: Dollar): Promise<string> {
@@ -657,7 +770,7 @@ function helpText(): string {
   return [
     'Claude DevTools: inspect, pause and control tool calls before they run.',
     '',
-    '/devtools                 open the pane (Overview, Timeline, Inspector, Breakpoints, Errors)',
+    '/devtools                 open the pane (Overview, Timeline, Inspector, Breakpoints, Errors, Permissions)',
     '/devtools-status          debugger state as text',
     '/devtools-break <rule>    add a breakpoint; /devtools-break delete|toggle <id>; /devtools-break clear',
     '/devtools-list            list breakpoints',
@@ -668,8 +781,9 @@ function helpText(): string {
     '/devtools-record [on|off] timeline recording',
     '/devtools-export [path] [--md]    write a sanitized JSON trace (and a Markdown report)',
     '/devtools-errors [clear]  Error Lens: why recent calls failed (confirmed / possible / unknown), with fixes',
+    '/devtools-permissions [clear]  your permission rules, and each refused call: who refused it and why',
     '',
-    'Short aliases: /bp <rule> (/bp alone lists) · /bpl list · /bpn pause next · /bpc continue · /bpe errors',
+    'Short aliases: /bp <rule> (/bp alone lists) · /bpl list · /bpn pause next · /bpc continue · /bpe errors · /bpp permissions',
     '',
     'Rules:',
     ...SPEC_HELP.map(line => `  ${line}`),
@@ -798,6 +912,12 @@ async function registerCommands($: Dollar): Promise<void> {
     argumentHint: '[clear]',
     immediate: true,
   })
+  await $.command.register({
+    name: 'devtools-permissions',
+    description: 'Claude DevTools: your permission rules, and who refused each refused tool call and why',
+    argumentHint: '[clear]',
+    immediate: true,
+  })
   await $.command.register({ name: 'devtools-help', description: 'Claude DevTools: usage and the breakpoint rule language', immediate: true })
   // Short aliases.
   await $.command.register({
@@ -810,9 +930,17 @@ async function registerCommands($: Dollar): Promise<void> {
   await $.command.register({ name: 'bpn', description: 'DevTools: pause on the next tool call (= /devtools-pause)', immediate: true })
   await $.command.register({ name: 'bpc', description: 'DevTools: continue, disarm pause-next and stepping (= /devtools-continue)', immediate: true })
   await $.command.register({ name: 'bpe', description: 'DevTools: Error Lens, why recent calls failed (= /devtools-errors)', argumentHint: '[clear]', immediate: true })
+  await $.command.register({ name: 'bpp', description: 'DevTools: permissions, who refused each call and why (= /devtools-permissions)', argumentHint: '[clear]', immediate: true })
 }
 
-const ALIASES: Readonly<Record<string, string>> = { bp: 'devtools-break', bpl: 'devtools-list', bpn: 'devtools-pause', bpc: 'devtools-continue', bpe: 'devtools-errors' }
+const ALIASES: Readonly<Record<string, string>> = {
+  bp: 'devtools-break',
+  bpl: 'devtools-list',
+  bpn: 'devtools-pause',
+  bpc: 'devtools-continue',
+  bpe: 'devtools-errors',
+  bpp: 'devtools-permissions',
+}
 
 async function runCommand($: Dollar, command: string, rawArgs: string): Promise<{ text: string }> {
   const args = rawArgs.trim()
@@ -822,7 +950,7 @@ async function runCommand($: Dollar, command: string, rawArgs: string): Promise<
       if (!session.isInteractive) return { text: await statusText($) }
       const waiting = await openPane($, true)
       if (waiting !== undefined) return { text: `${await statusText($)}\n\nThe pane is waiting: ${waiting}` }
-      return { text: 'Claude DevTools is open. Keys: d t i b e switch tabs; Tab walks the controls; ctrl+x tab focuses it.' }
+      return { text: 'Claude DevTools is open. Keys: d t i b e a switch tabs; Tab walks the controls; ctrl+x tab focuses it.' }
     }
     case 'devtools-status':
       return { text: await statusText($) }
@@ -876,6 +1004,18 @@ async function runCommand($: Dollar, command: string, rawArgs: string): Promise<
       const waiting = await openPane($, true)
       return { text: waiting === undefined ? text : `${text}\n\nThe pane is waiting: ${waiting}` }
     }
+    case 'devtools-permissions': {
+      if (args === 'clear') {
+        await clearDenials($)
+        return { text: 'Refused calls cleared.' }
+      }
+      const text = await permissionsText($)
+      const session = await read($, SESSION)
+      if (!session.isInteractive) return { text }
+      await setView($, { tab: 'permissions' })
+      const waiting = await openPane($, true)
+      return { text: waiting === undefined ? text : `${text}\n\nThe pane is waiting: ${waiting}` }
+    }
     case 'devtools-export':
       try {
         return { text: await exportTrace($, args) }
@@ -900,6 +1040,7 @@ export const register: Register = (on, rawOptions) => {
   summary = { maxChars: options.maxSummaryChars, redaction: options.redaction, captureRaw: options.captureRaw }
 
   on('tool.call', async ($, e, next) => {
+    noteSeen((e as ToolCallLike).tool_use_id)
     const settings = await liveSettings($)
     if (settings.mode === 'off') return next(e)
     const session = await read($, SESSION)
@@ -957,7 +1098,8 @@ export const register: Register = (on, rawOptions) => {
     // The one call into the rest of the chain: permissions, then the tool.
     const result = await next(e)
     try {
-      await afterRun($, call, event, isRecorded, runStartedMs, result as ResultLike, preview, cwd)
+      // The chain's trace names the link that refused, when one did: a mod beneath DevTools, or Claude Code.
+      await afterRun($, call, event, isRecorded, runStartedMs, result as ResultLike, preview, cwd, callDenier(next.trace))
     } catch (error) {
       debug($, `recording ${call.tool} failed: ${message(error)}`)
     }
@@ -1005,6 +1147,11 @@ export const register: Register = (on, rawOptions) => {
     await update($, TRACE, closeStale)
     await update($, PENDING, () => [])
     await registerCommands($)
+    try {
+      await readPermissionSettings($)
+    } catch (error) {
+      debug($, `could not read the permission settings: ${message(error)}`)
+    }
     for (const warning of optionWarnings) debug($, warning)
     await refreshStatus($)
     // Unasked, the engine seats the pane only where it docks beside the transcript (144+ columns); narrower, /devtools opens it.
@@ -1039,20 +1186,35 @@ export const register: Register = (on, rawOptions) => {
         'devtools-record',
         'devtools-export',
         'devtools-errors',
+        'devtools-permissions',
         'devtools-help',
         'bp',
         'bpl',
         'bpn',
         'bpc',
         'bpe',
+        'bpp',
       ],
     },
     async ($, e) => runCommand($, e.command, e.args),
   )
 
+  // Reads tool results only, and changes none: a call refused by a mod seated
+  // above DevTools never reaches its tool.call hook, so its refusal is caught
+  // here, from the stored result, and kept for the Permissions tab.
+  on('session.append', { door: 'tool-result' }, async ($, e, next) => {
+    const stored = await next(e)
+    try {
+      await noteUnseenRefusals($, e.message.content, e.origin.kind === 'tool' ? e.origin.tool : 'unknown', e.agentId)
+    } catch (error) {
+      debug($, `could not read a tool result: ${message(error)}`)
+    }
+    return stored
+  })
+
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const els = $.ui.resolve(e)
-    const [held, hits, arm, trace, pending, view, session, stats, lens, groups] = await Promise.all([
+    const [held, hits, arm, trace, pending, view, session, stats, lens, groups, denials, permissions] = await Promise.all([
       $.state.get(SETTINGS),
       read($, HITS),
       read($, ARM_ATOM),
@@ -1063,12 +1225,14 @@ export const register: Register = (on, rawOptions) => {
       read($, STATS),
       read($, LENS),
       read($, GROUPS),
+      read($, DENIALS),
+      read($, PERMISSIONS),
     ])
     const settings = withHits(held.value ?? defaultSettings(options), hits)
     const rows = e.props.placement === 'dock' ? e.props.scroll.bodyRows : Math.min(e.props.scroll.bodyRows, 24)
     const layout: Layout = e.props.placement === 'inline' ? 'mini' : e.props.bodyColumns >= 110 ? 'wide' : 'compact'
     const actions: PaneActions = {
-      setTab: tab => settle($, setView($, { tab })),
+      setTab: tab => settle($, tab === 'permissions' ? showPermissions($) : setView($, { tab })),
       inspect: id => settle($, setView($, { tab: 'inspector', selectedId: id })),
       page: delta => settle($, movePage($, delta)),
       toggleBreakpoint: id => settle($, editBreakpoint($, 'toggle', id)),
@@ -1083,6 +1247,9 @@ export const register: Register = (on, rawOptions) => {
       exportTrace: () => settle($, exportFromPane($)),
       openLens: id => settle($, setView($, { tab: 'errors', lensId: id })),
       clearErrors: () => settle($, clearErrors($)),
+      reloadPermissions: () => settle($, readPermissionSettings($)),
+      openDenial: id => settle($, openDenial($, id)),
+      clearDenials: () => settle($, clearDenials($)),
     }
     return renderPane(
       els,
@@ -1096,6 +1263,8 @@ export const register: Register = (on, rawOptions) => {
         stats,
         lens,
         groups,
+        denials,
+        permissions,
         options,
         columns: e.props.bodyColumns,
         rows: Math.max(6, rows),

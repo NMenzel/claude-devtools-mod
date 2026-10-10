@@ -186,13 +186,14 @@ Docked from 110 columns it lays out two columns (rules and calls on the
 left, the timeline on the right). Narrower, it stacks. Inline above the
 prompt (main-screen terminal) it is a three-line summary.
 
-The tabs (`d` `t` `i` `b` `e`; ctrl+x tab focuses the pane, Tab walks its controls):
+The tabs (`d` `t` `i` `b` `e` `a`; ctrl+x tab focuses the pane, Tab walks its controls):
 
 - **Dashboard**: as above.
 - **Timeline**: newest-first tool calls with status, tool, duration and summary. A `●` marks calls that matched a breakpoint. `j`/`k` page, `x` clear. Press a row to inspect it, or the ` why?` beside a failed row to open its Error Lens.
 - **Inspector**: the selected call's id, session, agent, timestamps, risk, permission verdict, breakpoint and decision, synthetic flag, result, error, and redacted input (JSON). `break on` buttons on `1`/`2`/`3`, `h`/`l` older/newer, and on a failed call `w` "Why it failed".
 - **Breakpoints**: the mode picker, the category toggles, each rule with Enable/Disable and Delete, and a field that adds a rule in the same language as `/devtools-break`.
 - **Errors**: Error Lens (below). The tab label counts the failures kept.
+- **Permissions**: each refused call with who refused it and why, then your permission rules by settings file (below). The tab label counts the refused calls.
 
 ### Error Lens: why a tool call failed
 
@@ -230,6 +231,38 @@ An MCP tool that reports success but whose output begins like an error (`Error: 
 servers answer errors as plain text) is kept as `suspected`, with its cause marked possible.
 Built-in tools flag their own errors, so they are never judged this way.
 
+### Permissions: who refused a call, and why
+
+The **Permissions** tab (`a`) answers "why couldn't the agent run that?".
+For each refused call, newest first, it shows the call, **who refused it** and
+the exact reason Claude was given:
+
+| Refused by | How DevTools knows |
+| - | - |
+| a permission **rule**, with its settings file (`Bash(rm -rf:*)` in `.claude/settings.json`) | the permission check's verdict names the rule |
+| the permission **mode** (plan, dontAsk, auto) | the verdict names no rule, and its reason names the mode |
+| **you**, at the permission prompt | the rejection Claude Code sends back |
+| a **settings hook** (`PreToolUse`) | the verdict names the hook |
+| **another mod**, by name and tier (`blast-radius (user tier)`) | Claude Code's call chain names the plugin that returned the refusal |
+| Claude DevTools itself (Reject, headless, guard) | its own record |
+
+Each attribution is `✔ confirmed` when the verdict or the call chain shows it.
+A mod seated *before* DevTools in the chain refuses before DevTools' hook runs.
+DevTools still catches that refusal, from the tool result Claude Code stores,
+and marks the mod `? possible`, read from the refusal's own words
+(`blast-radius: …`). Press a call to open its Error Lens, which names the mod
+too.
+
+Below the calls are your **permission rules** as each settings file holds them
+(managed policy, `--settings`, local, project, user): deny, ask and allow, each
+with its file, managed ones marked 🔒, the default mode and extra directories.
+They are read when the session starts and each time you open the tab or press
+Reload (`r`). DevTools only reads them; it never changes a setting.
+
+`/devtools-permissions` (or `/bpp`) prints the same as text, every rule and
+every refused call with its evidence, and works headless. `/devtools-permissions clear`
+empties the refused list.
+
 ### Commands
 
 | Command | Does |
@@ -244,10 +277,11 @@ Built-in tools flag their own errors, so they are never judged this way.
 | `/devtools-enable` | Back to `active`: breakpoints pause |
 | `/devtools-record [on\|off]` | Record every call, or only breakpoint matches |
 | `/devtools-errors [clear]` | Error Lens: the failure kinds this session and the latest failure's diagnosis. Opens the Errors tab when interactive |
+| `/devtools-permissions [clear]` | Your permission rules by settings file, and each refused call: who refused it, why, and the evidence. Opens the Permissions tab when interactive |
 | `/devtools-export [path.json\|path.md] [--md]` | Write a sanitized JSON trace (and a Markdown report). Default: `.claude-devtools/trace-<time>.json` in the working directory |
 | `/devtools-help` | Usage and the rule language |
 | `/bp <rule>` | Short for `/devtools-break`; `/bp` alone lists the breakpoints and the rule language |
-| `/bpl` · `/bpn` · `/bpc` · `/bpe` | Short for `/devtools-list`, `/devtools-pause` (next call), `/devtools-continue` and `/devtools-errors` |
+| `/bpl` · `/bpn` · `/bpc` · `/bpe` · `/bpp` | Short for `/devtools-list`, `/devtools-pause` (next call), `/devtools-continue`, `/devtools-errors` and `/devtools-permissions` |
 
 All of these run immediately, even while Claude is working.
 
@@ -320,10 +354,11 @@ Everything below lives in [`hooks/register.tsx`](hooks/register.tsx).
 
 | Hook | What it does |
 | - | - |
-| `tool.check` (the permission check) | **Decides nothing.** It passes every permission check on unchanged and only reads the verdict Claude Code reached (allow, ask or deny, and the rule behind it) to show it in the timeline, the inspector and Error Lens. It never answers allow, ask or deny itself, so the permission decision stays with your rules, your mode and you. |
-| `tool.call` | Records each tool call. Only when a breakpoint you set matches does it hold the call and ask you: Continue, Step, Reject, or Simulate (opt-in). After Continue, Claude Code's permission check still runs as usual. In `claude -p`, a call matching a pause breakpoint is rejected by default (`headlessPause`). It never approves a call. |
+| `tool.check` (the permission check) | **Decides nothing.** It passes every permission check on unchanged and only reads the verdict Claude Code reached (allow, ask or deny, the rule or settings hook behind it, and a mod beneath DevTools that changed it) to show it in the timeline, the inspector, Error Lens and Permissions. It never answers allow, ask or deny itself, so the permission decision stays with your rules, your mode and you. |
+| `tool.call` | Records each tool call. Only when a breakpoint you set matches does it hold the call and ask you: Continue, Step, Reject, or Simulate (opt-in). After Continue, Claude Code's permission check still runs as usual. In `claude -p`, a call matching a pause breakpoint is rejected by default (`headlessPause`). It never approves a call. After the call, it reads the chain's trace to name the mod that refused it, if one did. |
+| `session.append` (tool results only) | **Changes nothing.** It reads the tool results Claude Code stores, to catch a refusal made by a mod seated before DevTools, whose call DevTools' `tool.call` hook never saw. It passes every row on as it is. |
 | `classic.SessionStart` | After `/clear`, reads the session id and working directory for the timeline. It passes the event on unchanged and changes no setting, instruction, hook or tool description. |
-| `command.run` | Answers only its own commands, matched by name: `/devtools`, `/devtools-*`, `/bp`, `/bpl`, `/bpn`, `/bpc`, `/bpe`. Whether you or other code runs one of them, it answers that command and nothing else; it never sees or changes any other command. |
+| `command.run` | Answers only its own commands, matched by name: `/devtools`, `/devtools-*`, `/bp`, `/bpl`, `/bpn`, `/bpc`, `/bpe`, `/bpp`. Whether you or other code runs one of them, it answers that command and nothing else; it never sees or changes any other command. |
 | `session.start`, `ui.render` | Registers the commands, opens the pane, and draws the pane, the transcript gutter and the bar above the prompt. |
 
 **Files it writes.** Only when you run `/devtools-export` or press Export in
@@ -338,10 +373,15 @@ any build, start-up, settings or instructions file, and it refuses to:
 
 **Files it reads.** With `errorLens` set to `probe`, after a call fails, it
 checks the paths that call named with `stat`: kind, size and modified time,
-never contents. `classify` or `off` turns this off.
+never contents. `classify` or `off` turns this off. For the Permissions tab it
+reads the `permissions` of each settings file through `$.settings.read`
+(allow, ask and deny rules, the default mode, extra directories), when the
+session starts and when you open the tab, press Reload or run
+`/devtools-permissions`. It never writes a setting.
 
 **What it stores.** Breakpoint rules and the debugger mode in the plugin store
-(`persistBreakpoints`). The timeline stays in the session's memory.
+(`persistBreakpoints`). The timeline, the refused calls and the permission
+rules it read stay in the session's memory.
 
 **What it never does.** No network requests, no model calls, no processes,
 no changes to your permission settings. At a pause it asks Claude Code what
@@ -352,7 +392,7 @@ the dialog.
 
 ```bash
 claude plugin validate .         # manifest, hooks, calls, state contract
-claude plugin test .             # 150 tests: pure engine + real hooks and UI through claude-code/testing
+claude plugin test .             # 174 tests: pure engine + real hooks and UI through claude-code/testing
 npx -p typescript@5 tsc -p .     # type-check (after one load has laid .claude-plugin/types)
 ```
 

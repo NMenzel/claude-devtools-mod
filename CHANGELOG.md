@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.0
+
+- **Permissions tab** (`a`): each refused call, newest first, with who refused it and the exact reason Claude was given. The refuser can be a permission rule (with the settings file that holds it), the permission mode, you at the permission prompt, a `PreToolUse` settings hook, another mod (by name and tier), or Claude DevTools itself. Below the calls: your allow, ask and deny rules from each settings file (managed policy 🔒, `--settings`, local, project, user), the default mode and extra directories. Rules are read at session start, when the tab opens and on Reload (`r`), and never written.
+- **Works with other mods.** A mod beneath DevTools that refuses a call (Blast Radius, a guard) is named from Claude Code's call chain, confirmed. A mod seated before DevTools is caught from the stored tool result and named as possible, from its refusal's leading `name:`. A mod whose `tool.check` hook changed the verdict is named too.
+- Error Lens names the mod that refused a call instead of "unknown", and a `PreToolUse` hook's deny as such.
+- `/devtools-permissions [clear]`, short `/bpp`: the same as text, every rule and every refused call with its evidence; works headless.
+- New hook: `session.append`, matched to tool results only. It passes every row on unchanged. New call: `$.settings.read`, read-only.
+- 174 tests.
+
 ## 0.1.4
 
 - File breakpoints under your home folder fire on macOS and Linux too: `~/`, `$HOME/` and `%USERPROFILE%\` match the real home path (`/home/<user>/`, `/Users/<user>/`, `C:\Users\<user>\`) and the other way round. Before, `file ~/.ssh/**` never matched a Read of `/home/me/.ssh/id_rsa`.

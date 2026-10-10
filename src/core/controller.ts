@@ -127,10 +127,12 @@ export type Classified = { status: TraceStatus; outcome: TraceOutcome }
 /**
  * Tells a tool failure from a permission denial, a hook's refusal and an
  * interrupted call. Permission verdicts come from tool.check when observed;
- * the text patterns are a documented fallback.
+ * the text patterns are a documented fallback. A deny the call chain shows a
+ * mod returned is that mod's, whatever its words.
  */
-export function classifyResult(result: ResultLike, permission?: PermissionInfo): Classified {
+export function classifyResult(result: ResultLike, permission?: PermissionInfo, isDeniedByMod = false): Classified {
   if (typeof result.deny === 'string') {
+    if (isDeniedByMod) return { status: 'denied', outcome: 'blocked-by-hook' }
     return { status: 'denied', outcome: permission?.decision === 'deny' || PERMISSION_REJECTED.test(result.deny) ? 'permission-denied' : 'blocked-by-hook' }
   }
   if (result.isError === true) {

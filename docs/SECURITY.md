@@ -23,8 +23,14 @@ it makes.
   unchanged. Only an explicit **Simulate** replaces a result, and that is
   opt-in, allowlisted and labeled.
 - **It cannot weaken managed policy.** Managed `PreToolUse` hooks run before
-  any mod. Organization mods (`prependPlugins`) sit outside it. It does not
-  touch settings.
+  any mod. Organization mods (`prependPlugins`) sit outside it. It never
+  changes a setting. For the Permissions tab it only *reads* the
+  `permissions` of each settings file (`$.settings.read`): rules, default
+  mode, extra directories. Rules are redacted like everything else it keeps.
+- **It only reads tool results.** Its `session.append` hook, matched to tool
+  results alone, passes every row on as it is. It keeps only the refusal text
+  of a call refused before DevTools saw it, redacted and cut to 600
+  characters.
 
 **The mod is not a sandbox.** It is a debugger. Tool-name and path
 matching are best effort. Shell commands are matched as text without full
@@ -83,7 +89,7 @@ and the exports all show that raw capture is on.
 
 | Data | Location | Lifetime |
 | - | - | - |
-| Timeline, pending calls, counters, Error Lens records | `$.state` (host memory) | the session; lost on exit and on `/clear` |
+| Timeline, pending calls, counters, Error Lens records, refused calls (at most 80), the permission rules last read | `$.state` (host memory) | the session; lost on exit and on `/clear` |
 | Breakpoint rules and mode (no hit counts, no events) | `$.store`, a JSON file of the plugin's own under your Claude Code config directory | until you clear it (`/devtools-break clear`) or turn off `persistBreakpoints` |
 | Exports | only where you run `/devtools-export`. The default is `.claude-devtools/` in the working directory, so add it to `.gitignore` | until you delete them |
 

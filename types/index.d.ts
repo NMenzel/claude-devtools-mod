@@ -75,6 +75,10 @@ export type PermissionInfo = {
   decision: 'allow' | 'ask' | 'deny'
   rule?: string
   reason?: string
+  /** The classic hook event that decided (`PreToolUse`), as the verdict names it. */
+  hook?: string
+  /** A mod whose tool.check hook beneath DevTools changed the verdict to this one. */
+  decidedBy?: { plugin: string; tier: string }
   /** `preview`: $.tool.check before running; `observed`: the verdict tool.check reached for this call. */
   source: 'preview' | 'observed'
 }
@@ -215,6 +219,59 @@ export type ErrorGroup = {
   ids: string[]
 }
 
+// ---------------------------------------------------------------- Permissions
+
+/** A settings file, by the name `$.settings.read` gives it. */
+export type SettingsSourceName = 'user' | 'project' | 'local' | 'flag' | 'policy'
+
+export type PermissionRuleRow = { behavior: 'allow' | 'ask' | 'deny'; rule: string; source: SettingsSourceName }
+
+/** The permission settings as each settings file holds them: read, never written. */
+export type PermissionsSnapshot = {
+  /** When they were read; 0 before the first read. */
+  readAtMs: number
+  /** The mode a session starts in, from the file that wins. */
+  defaultMode?: { mode: string; source: SettingsSourceName }
+  /** Deny first, then ask, then allow; within each, the file that wins first. */
+  rules: PermissionRuleRow[]
+  directories: Array<{ path: string; source: SettingsSourceName }>
+  /** Files that could not be read, and why. */
+  errors: string[]
+}
+
+/** Who refused a call. */
+export type RefusalSource = 'rule' | 'mode' | 'prompt' | 'settings-hook' | 'mod' | 'devtools' | 'unknown'
+
+/** Who refused a call and why, as far as the evidence shows. */
+export type Refusal = {
+  by: RefusalSource
+  /** The mod that refused (`by: 'mod'`). */
+  plugin?: string
+  /** That mod's tier, when the engine named it (`user`, `prepend`, ...). */
+  tier?: string
+  /** The settings rule as written (`by: 'rule'`). */
+  rule?: string
+  /** The classic hook event (`by: 'settings-hook'`). */
+  hook?: string
+  /** The refusal as Claude read it: redacted, at most 600 characters. */
+  reason: string
+  certainty: Certainty
+  /** What the attribution rests on. */
+  evidence: string
+}
+
+/** A refused call, kept for the Permissions tab whether or not the timeline records. */
+export type Denial = {
+  /** The trace event's id (the tool_use_id when there is one). */
+  id: string
+  tool: string
+  agentId?: string
+  atMs: number
+  inputSummary: string
+  outcome: TraceOutcome
+  refusal: Refusal
+}
+
 /** A call held at a breakpoint, shown on the Overview whether or not recording is on. */
 export type PendingCall = {
   id: string
@@ -225,7 +282,7 @@ export type PendingCall = {
   agentId?: string
 }
 
-export type DevtoolsTab = 'dashboard' | 'timeline' | 'inspector' | 'breakpoints' | 'errors'
+export type DevtoolsTab = 'dashboard' | 'timeline' | 'inspector' | 'breakpoints' | 'errors' | 'permissions'
 
 export type ViewState = {
   tab: DevtoolsTab
@@ -269,6 +326,10 @@ declare module 'claude-code' {
       lens: LensRecord[]
       /** Error Lens: repeated failures grouped by signature (bounded). */
       errorGroups: ErrorGroup[]
+      /** Permissions: the latest refused calls, with who refused them (bounded). */
+      denials: Denial[]
+      /** Permissions: the permission settings, as last read. */
+      permissions: PermissionsSnapshot
       view: ViewState
       session: SessionInfo
       stats: DevtoolsStats
