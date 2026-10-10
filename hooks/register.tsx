@@ -81,7 +81,7 @@ import { type Offer, renderBar, renderGutter } from '../src/ui/inline.tsx'
 import type { Layout } from '../src/ui/model.ts'
 import { type PaneActions, renderPane } from '../src/ui/pane.tsx'
 
-const VERSION = '0.1.3'
+const VERSION = '0.1.4'
 const PANE = 'devtools'
 
 // The $.state values kept for the session (declared in ../types/index.d.ts):

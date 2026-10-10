@@ -88,7 +88,8 @@ and the exports all show that raw capture is on.
 | Exports | only where you run `/devtools-export`. The default is `.claude-devtools/` in the working directory, so add it to `.gitignore` | until you delete them |
 
 Export paths are validated: only `.json` or `.md` names, no `..` segments,
-no control characters, no hidden file or folder other than `.claude-devtools/`
+no control characters, no `~` or environment variable (nothing expands them,
+so they would make a literal `~` folder), no hidden file or folder other than `.claude-devtools/`
 (so no `.claude/`, `.mcp.json` or `.vscode/`), and no instructions file
 (`CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md`, `GEMINI.md`). Outside
 `.claude-devtools/` an export never replaces an existing file

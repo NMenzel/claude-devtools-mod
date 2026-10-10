@@ -301,8 +301,9 @@ function exitCodeOf(text: string): number | undefined {
   return value === undefined ? undefined : Number(value)
 }
 
+// A path from `/` is POSIX, where a backslash is an ordinary filename character.
 function isWindowsPath(value: unknown): boolean {
-  return typeof value === 'string' && (/^[a-zA-Z]:[\\/]/.test(value) || value.includes('\\'))
+  return typeof value === 'string' && (/^[a-zA-Z]:[\\/]/.test(value) || (value.includes('\\') && !value.startsWith('/')))
 }
 
 /**
@@ -469,7 +470,7 @@ const NO_PROBE: readonly ErrorCategory[] = ['debugger', 'simulated', 'interrupte
 export type ProbeTarget = { path: string; role: LensProbe['role'] }
 
 export function parentOf(path: string): string | undefined {
-  const cut = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'))
+  const cut = isWindowsPath(path) ? Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\')) : path.lastIndexOf('/')
   if (cut <= 0) return undefined
   const parent = path.slice(0, cut)
   return /^[A-Za-z]:$/.test(parent) ? `${parent}\\` : parent

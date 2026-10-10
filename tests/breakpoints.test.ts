@@ -113,6 +113,25 @@ describe('file breakpoints', () => {
     expect(matchPath('/repo/src/**', 'lib/a.ts', '/repo')).toBe(false)
   })
 
+  test('a home folder matches however either side spells it: ~, $HOME, %USERPROFILE% or the real path', () => {
+    expect(matchPath('~/.ssh/**', '/home/me/.ssh/id_rsa')).toBe(true)
+    expect(matchPath('~/.ssh/**', '/Users/me/.ssh/config')).toBe(true)
+    expect(matchPath('~/.ssh/**', 'C:\\Users\\me\\.ssh\\id_rsa')).toBe(true)
+    expect(matchPath('~/.ssh/**', '.ssh/id_rsa', '/home/me')).toBe(true)
+    expect(matchPath('/home/me/.ssh/**', '~/.ssh/id_rsa')).toBe(true)
+    expect(matchPath('$HOME/.aws/*', '/root/.aws/credentials')).toBe(true)
+    expect(matchPath('%USERPROFILE%\\.aws\\*', 'C:\\Users\\me\\.aws\\credentials')).toBe(true)
+    // Anchored at home: not a .ssh folder elsewhere, and not outside home.
+    expect(matchPath('~/.ssh/**', '/home/me/project/.ssh/x')).toBe(false)
+    expect(matchPath('~/.ssh/**', '/etc/ssh/sshd_config')).toBe(false)
+    expect(matchPath('~/**', '/etc/passwd')).toBe(false)
+    // A rule that does not name home still sees ~ paths by their segments.
+    expect(matchPath('.ssh/**', '~/.ssh/id_rsa')).toBe(true)
+    const bps = [rule('file ~/.ssh/**')]
+    expect(evaluateCall(bps, read('/home/me/.ssh/id_rsa')).hits).toHaveLength(1)
+    expect(evaluateCall(bps, bash('cat ~/.ssh/id_rsa')).hits).toHaveLength(1)
+  })
+
   test('file rules see Read, Edit, Grep paths and shell path words', () => {
     const bps = [rule('file .env*')]
     expect(evaluateCall(bps, read('/r/.env')).hits).toHaveLength(1)

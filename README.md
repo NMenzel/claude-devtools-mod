@@ -268,7 +268,10 @@ when tool=A,B command=".." path=.. all given conditions must match
 
 Path globs are case-insensitive whenever either side is a Windows path.
 A glob with no `/` matches any path segment. A relative glob matches below
-the working directory or at any directory boundary.
+the working directory or at any directory boundary. A glob under your home
+folder matches however either side spells it: `~/.ssh/**` matches
+`/home/me/.ssh/id_rsa`, `/Users/me/.ssh/config`, `C:\Users\me\.ssh\id_rsa`
+and `cat ~/.ssh/id_rsa`, as do `$HOME/` and `%USERPROFILE%\`.
 
 ### Simulation (opt-in)
 
@@ -349,7 +352,7 @@ the dialog.
 
 ```bash
 claude plugin validate .         # manifest, hooks, calls, state contract
-claude plugin test .             # 148 tests: pure engine + real hooks and UI through claude-code/testing
+claude plugin test .             # 150 tests: pure engine + real hooks and UI through claude-code/testing
 npx -p typescript@5 tsc -p .     # type-check (after one load has laid .claude-plugin/types)
 ```
 

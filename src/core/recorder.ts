@@ -93,7 +93,7 @@ const INSTRUCTIONS_FILE = /(^|[\\/])(claude|claude\.local|agents|gemini)\.md$/i
 /**
  * Where `/devtools-export [path] [--md]` writes. A path is the person's own
  * input, so it is checked: a .json or .md name, no `..` segment, no control
- * characters, no hidden file or folder (where settings and tool configuration
+ * characters, no unexpanded `~` or environment variable, no hidden file or folder (where settings and tool configuration
  * live) but the export folder, no instructions file; a relative path lands
  * under the session's working directory. Outside the export folder the
  * caller refuses to replace an existing file, so no build, settings or
@@ -103,6 +103,10 @@ export function exportPaths(arg: string | undefined, cwd: string, stamp: string,
   const root = cwd.replace(/[\\/]+$/, '')
   const target = arg === undefined || arg === '' ? `${EXPORT_FOLDER}/trace-${stamp}.json` : arg
   if (/[\u0000-\u001f]/.test(target)) return { ok: false, error: 'the export path holds a control character' }
+  // Nothing expands these here, so `~/t.json` would land in a folder named `~` under the working directory.
+  if (/^~|\$[A-Za-z_{(]|%[A-Za-z_][A-Za-z0-9_]*%/.test(target)) {
+    return { ok: false, error: 'the export path uses ~ or an environment variable, which are not expanded: give the full path' }
+  }
   const segments = target.split(/[\\/]/).filter(part => part !== '' && part !== '.')
   if (segments.includes('..')) return { ok: false, error: 'the export path may not contain ".." segments' }
   if (segments.some(part => part.startsWith('.') && part !== EXPORT_FOLDER)) {

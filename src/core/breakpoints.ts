@@ -99,6 +99,28 @@ function isAbsolute(path: string): boolean {
   return path.startsWith('/') || /^[a-z]:\//.test(path)
 }
 
+// Nothing expands `~` or `$HOME`, so a rule and a call can name the same home
+// folder differently. Each side under a home folder (`~/`, `$HOME/`,
+// `%USERPROFILE%\`, `/home/<user>/`, `/Users/<user>/`, `C:\Users\<user>\`)
+// then also matches by its part below home.
+const HOME_ALIAS = /^(?:~|\$home|\$\{home\}|%userprofile%|\$env:userprofile)(?=\/|$)/i
+const HOME = /^(?:~|\$home|\$\{home\}|%userprofile%|\$env:userprofile|\/home\/[^/]+|\/users\/[^/]+|\/root|\/var\/root|[a-z]:\/users\/[^/]+)(?:\/|$)/i
+
+function belowHome(path: string): string | undefined {
+  const found = HOME.exec(path)
+  return found === null ? undefined : path.slice(found[0].length)
+}
+
+function matchBelowHome(glob: string, path: string, insensitive: boolean, cwd?: string): boolean {
+  const full = isAbsolute(path) || HOME_ALIAS.test(path) || cwd === undefined ? path : normalizePath(`${cwd}/${path}`).path
+  const globRest = belowHome(glob)
+  const pathRest = belowHome(full)
+  if (globRest === undefined || pathRest === undefined) return false
+  if (globRest === '') return pathRest === ''
+  const compiled = compileGlob(globRest)
+  return compiled.ok && (insensitive ? compiled.insensitive : compiled.sensitive).test(pathRest)
+}
+
 function globSource(glob: string): string {
   let out = ''
   for (let i = 0; i < glob.length; i += 1) {
@@ -149,6 +171,10 @@ export function matchPath(glob: string, rawPath: string, cwd?: string): boolean 
   const { glob: pattern, sensitive, insensitive } = compiled
   const target = normalizePath(rawPath)
   const regex = pattern.isWindows || target.isWindows ? insensitive : sensitive
+  if (HOME_ALIAS.test(pattern.path) || HOME_ALIAS.test(target.path)) {
+    const below = matchBelowHome(pattern.path, target.path, regex === insensitive, cwd)
+    if (below || HOME_ALIAS.test(pattern.path)) return below
+  }
   const segments = target.path.split('/').filter(segment => segment !== '')
 
   if (!pattern.path.includes('/')) return segments.some(segment => regex.test(segment))
