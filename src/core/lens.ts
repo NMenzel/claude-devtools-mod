@@ -12,6 +12,7 @@ import type {
   LensProbe,
   LensRecord,
   PermissionInfo,
+  Refusal,
   TraceOutcome,
   TraceStatus,
 } from '../../types'
@@ -219,6 +220,8 @@ export type DiagnoseInput = {
   result?: unknown
   args: Readonly<Record<string, unknown>>
   permission?: PermissionInfo
+  /** Who refused the call, when the call chain or the verdict shows it. */
+  refusal?: Refusal
   durationMs?: number
   suspected?: boolean
 }
@@ -353,7 +356,13 @@ export function diagnose(input: DiagnoseInput): Diagnosis {
       return done('interrupted')
     case 'permission-denied': {
       const p = input.permission
-      if (p?.decision === 'deny') {
+      if (p?.decision === 'deny' && p.decidedBy !== undefined) {
+        out.causes.push(cause('confirmed', `The mod ${p.decidedBy.plugin} (${p.decidedBy.tier} tier) changed the permission verdict to deny.`, [`tool.check verdict: deny (${p.source})`, p.reason]))
+        out.fixes.push(`If it should run, check what ${p.decidedBy.plugin} allows (/plugin).`)
+      } else if (p?.decision === 'deny' && p.hook !== undefined) {
+        out.causes.push(cause('confirmed', `A ${p.hook} settings hook denied this call.`, [`tool.check verdict: deny by the ${p.hook} hook (${p.source})`, p.reason]))
+        out.fixes.push('Review the hook in /hooks if the call should run.')
+      } else if (p?.decision === 'deny') {
         out.causes.push(
           cause('confirmed', `Claude Code's permission check denied this call${p.rule !== undefined ? ` by the rule ${p.rule}` : ''}.`, [
             `tool.check verdict: deny (${p.source})`,
@@ -371,11 +380,19 @@ export function diagnose(input: DiagnoseInput): Diagnosis {
       }
       return done('permission-denied')
     }
-    case 'blocked-by-hook':
+    case 'blocked-by-hook': {
+      const r = input.refusal
+      if (r?.by === 'mod' && r.certainty === 'confirmed' && r.plugin !== undefined) {
+        out.causes.push(cause('confirmed', `The mod ${r.plugin}${r.tier !== undefined ? ` (${r.tier} tier)` : ''} refused the call before it ran.`, [quoted, r.evidence]))
+        out.fixes.push(`Read its refusal; what ${r.plugin} holds or refuses is set in that mod (/plugin).`)
+        return done('blocked-by-hook')
+      }
       out.causes.push(cause('confirmed', 'A settings hook or another mod beneath Claude DevTools refused the call before it ran.', [quoted]))
-      out.causes.push(cause('unknown', 'Which hook or mod refused it: the result does not name it (claude --debug logs the plugin that denied).'))
+      if (r?.by === 'settings-hook') out.causes.push(cause('possible', 'Claude Code itself refused it, not a mod: a PreToolUse settings hook is the usual cause.', [r.evidence]))
+      else out.causes.push(cause('unknown', 'Which hook or mod refused it: the result does not name it (claude --debug logs the plugin that denied).'))
       out.fixes.push('Read the refusal text; review /hooks and the mods in /plugin.')
       return done('blocked-by-hook')
+    }
     default:
       break
   }
@@ -608,6 +625,7 @@ export type CaptureInput = {
   args: Record<string, unknown>
   paths: string[]
   permission?: PermissionInfo
+  refusal?: Refusal
   contentBytes?: number
   probing: 'probe' | 'classify'
 }
@@ -624,6 +642,7 @@ export function buildLensRecord(input: CaptureInput): { record: LensRecord; plan
     result: input.result,
     args: input.args,
     ...(input.permission !== undefined ? { permission: input.permission } : {}),
+    ...(input.refusal !== undefined ? { refusal: input.refusal } : {}),
     durationMs,
     ...(input.suspected === true ? { suspected: true } : {}),
   })

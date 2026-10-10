@@ -113,26 +113,39 @@ describe('Error Lens: capture', () => {
     expect(JSON.stringify(record)).not.toContain('hello')
   })
 
-  test('a permission denial and a hook refusal are told apart; the hook stays unknown', async ($, on) => {
-    const w = world(on)
-    tools(on, e =>
-      e.command === 'rm -rf build' ? { deny: 'Permission to use Bash with command rm -rf build has been denied.' } : { deny: 'my-guard: deploys are blocked here' },
-    )
-    dialog(on, [])
-    await start($)
-    await $.tool.call({ tool: 'Bash', command: 'rm -rf build' })
-    await $.tool.call({ tool: 'Bash', command: 'npm run deploy' })
-    await w.clock.settle()
-    const t = await exported($, w)
-    expect(t.errors.map(r => [r.status, r.outcome, r.category])).toEqual([
-      ['denied', 'permission-denied', 'permission-denied'],
-      ['denied', 'blocked-by-hook', 'blocked-by-hook'],
-    ])
-    expect(t.errors[0]?.causes.map(one => one.certainty)).toEqual(['possible', 'unknown'])
-    expect(t.errors[1]?.causes.map(one => one.certainty)).toEqual(['confirmed', 'unknown'])
-    expect(w.toasts.some(text => text.startsWith('DevTools ✗ Bash denied (permission-denied)'))).toBe(true)
-    expect(w.statted).toEqual([])
-  })
+  test(
+    "a permission denial and a mod's refusal are told apart; the mod is named from the call chain",
+    {
+      plugins: [
+        {
+          name: 'my-guard',
+          tier: 'append',
+          register(on) {
+            on('tool.call', { tool: 'Bash' }, (_$, e, next) => (e.command === 'npm run deploy' ? { deny: 'my-guard: deploys are blocked here' } : next(e)))
+          },
+        },
+      ],
+    },
+    async ($, on) => {
+      const w = world(on)
+      tools(on, () => ({ isError: true, result: 'x', text: 'Permission to use Bash with command rm -rf build has been denied.' }))
+      dialog(on, [])
+      await start($)
+      await $.tool.call({ tool: 'Bash', command: 'rm -rf build' })
+      await $.tool.call({ tool: 'Bash', command: 'npm run deploy' })
+      await w.clock.settle()
+      const t = await exported($, w)
+      expect(t.errors.map(r => [r.status, r.outcome, r.category])).toEqual([
+        ['denied', 'permission-denied', 'permission-denied'],
+        ['denied', 'blocked-by-hook', 'blocked-by-hook'],
+      ])
+      expect(t.errors[0]?.causes.map(one => one.certainty)).toEqual(['possible', 'unknown'])
+      expect(t.errors[1]?.causes.map(one => one.certainty)).toEqual(['confirmed'])
+      expect(t.errors[1]?.causes[0]?.text).toContain('my-guard (append tier)')
+      expect(w.toasts.some(text => text.startsWith('DevTools ✗ Bash denied (permission-denied)'))).toBe(true)
+      expect(w.statted).toEqual([])
+    },
+  )
 
   test('an ambiguous failure stays unknown; an MCP success that reads like an error is only suspected', async ($, on) => {
     const w = world(on)

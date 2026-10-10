@@ -2,8 +2,8 @@
 
 ## Verified
 
-Every line below is covered by `claude plugin test .`. That suite has 150
-tests: 80 on the pure engine, and 66 that load the mod into the engine's own
+Every line below is covered by `claude plugin test .`. That suite has 174
+tests: 99 on the pure engine, and 75 that load the mod into the engine's own
 test host and drive its real hooks.
 
 - A Bash call matching a breakpoint pauses. **Reject** keeps the tool from running, and Claude reads why.
@@ -26,6 +26,7 @@ test host and drive its real hooks.
 - Transcript gutter: Bash rows offer tool and command, Read rows their path relative to the project, folded groups one toggle per tool. A press sets a rule (and the red mark appears), and a second press removes it. `inlineControls` always (the default), hover and off behave as described. The bar always fits one line (checked at every width from 24 to 200 columns), and before the first call its hint stands alone. The `/bp`, `/bpl`, `/bpn`, `/bpc` and `/bpe` aliases answer as their long forms. Nothing draws while the mode is off.
 - The bar above the prompt shows the latest call with `t`/`c`/`f` toggles, opens the pane, hides, and yields to surveys.
 - Error Lens: a successful call leaves no record. Each of these is classified with the right certainty: a failed Read, Write or Edit, a permission denial, a hook refusal, an ambiguous failure, a suspected MCP success, and DevTools' own refusal. In every case the result Claude gets is unchanged and the tool ran once. Read-only checks find a missing parent folder and a write that landed despite its error. Repeats are grouped and announced on the first and every fifth. `errorLens` `off` and `classify` and `errorToasts` off behave as described. Recording off still diagnoses. Secrets are redacted in records and exports. The Errors tab, the ERRORS panel, the timeline's ` why?`, the Inspector's `w` and the bar's `e` all reach it.
+- Permissions: a mod beneath DevTools (an inline plugin in the `append` tier) is named, with its tier, from the call chain, confirmed, in the tab, `/devtools-permissions` and Error Lens. A mod seated before it (the `prepend` tier) is caught from the stored tool result and named as possible. A deny rule is named with the settings file that holds it. Results for calls DevTools saw, validation errors and interruptions add nothing. Mode `off` records nothing. Rules from each settings file are listed with their file and reread on Reload. The tab fits 32 columns and draws on desktop and mobile. `/bpp` answers as `/devtools-permissions`.
 
 **Real-session smoke tests** (`claude -p --plugin-dir`, Claude Code 2.1.294, Windows):
 
@@ -33,6 +34,7 @@ test host and drive its real hooks.
 - `/devtools-help`, `/devtools-break` and `/devtools-list` answer without a model call. Rules persist across separate sessions.
 - The model's real `Bash` call `echo devtools-smoke-marker` hit breakpoint `smoke`, did not run, and Claude received the headless refusal text verbatim.
 - `/devtools-errors` registers and answers in a real `-p` session. Error Lens on a real failing tool call is covered by the test kit only. A `-p` run cannot show its toast, and `$.state` does not outlive the process for a second command to read.
+- `/devtools-permissions` answers in a real `-p` session (0.2.0) and lists the real allow rules of the local settings file, with that file named. The module loads with its `session.append` hook.
 - `npx tsc -p .` passes against the engine-laid `.claude-plugin/types`.
 
 **Not verified by hand:** the interactive pause dialog, the dashboard, the
@@ -48,6 +50,8 @@ tested. Try it after installing it (see the README).
 - **The dialog is the control for a held call.** No command can release a call another hook holds, so `/devtools-continue` affects only future calls.
 - **Several held calls.** If parallel calls each match a pause rule, each raises its own question. The engine's dialog decides the order. DevTools does not serialize them, because a wait on its own promise would count against the hook's 10-second budget.
 - **Permission answers are inferred.** The `tool.check` verdict (allow/ask/deny and rule) is exact. Whether the person rejected the permission *prompt* is inferred from the error text (`doesn't want to proceed`, …).
+- **Mods before DevTools are named from their words.** A mod seated before DevTools in the chain refuses before DevTools' hook runs, so the engine never names it to DevTools. The refusal is caught from the stored tool result, and the mod is marked possible when its text starts with its name (`blast-radius: …`), unknown otherwise.
+- **The live permission mode is not readable.** The Permissions tab shows the default mode from the settings files. A mode changed with Shift+Tab is not shown, though a refusal by the mode is still named from the verdict.
 - **Shell matching is textual.** Command patterns and path words in shell commands do not parse the shell. Quoting, variables and aliases can hide a match.
 - **Globs:** `**`, `*` and `?` are supported. Brace expansion (`{a,b}`) and negation are not.
 - **Risk labels** are coarse regex heuristics for display and stub eligibility. They are not a security decision.

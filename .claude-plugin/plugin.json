@@ -1,8 +1,8 @@
 {
   "name": "devtools",
   "displayName": "Claude DevTools",
-  "version": "0.1.4",
-  "description": "A debugger for Claude Code tool calls: breakpoints, pause/continue/reject/step, a timeline, an inspector, Error Lens failure diagnosis and sanitized trace exports.",
+  "version": "0.2.0",
+  "description": "A debugger for Claude Code tool calls: breakpoints, pause/continue/reject/step, a timeline, an inspector, Error Lens failure diagnosis, a Permissions view of who refused each call and why, and sanitized trace exports.",
   "author": { "name": "NMenzel", "url": "https://github.com/NMenzel" },
   "homepage": "https://github.com/NMenzel/claude-devtools-mod",
   "repository": "https://github.com/NMenzel/claude-devtools-mod",
@@ -10,7 +10,7 @@
   "supportUrl": "https://github.com/NMenzel/claude-devtools-mod/issues",
   "privacyPolicyUrl": "https://github.com/NMenzel/claude-devtools-mod/blob/main/docs/SECURITY.md",
   "license": "MIT",
-  "keywords": ["claude-code", "claude-code-mod", "claude-code-plugin", "debugger", "breakpoints", "tool-calls", "error-diagnosis", "trace", "tui"],
+  "keywords": ["claude-code", "claude-code-mod", "claude-code-plugin", "debugger", "breakpoints", "tool-calls", "error-diagnosis", "permissions", "trace", "tui"],
   "types": "./types/index.d.ts",
   "userConfig": {
     "recording": {

@@ -16,10 +16,12 @@ claude-devtools-mod/
 ├── src/core/recorder.ts         ring buffer, export schema, validator, Markdown
 ├── src/core/suggest.ts          one-press rules a call suggests; tool categories; hit merging
 ├── src/core/lens.ts             Error Lens: classification, certainty, probe plans and their reading, grouping
+├── src/core/permissions.ts      who refused a call (verdict, call-chain trace, refusal text), the settings' permission rules
 ├── src/security/redaction.ts    secret redaction
 ├── src/config/schema.ts         option validation, persisted settings
-├── src/ui/pane.tsx              header, legend, tabs: Timeline, Inspector, Breakpoints
+├── src/ui/pane.tsx              header, legend, tabs: Timeline, Inspector, Breakpoints, Errors, Permissions
 ├── src/ui/lens.tsx              the Errors tab (Error Lens)
+├── src/ui/permissions.tsx       the Permissions tab
 ├── src/ui/dashboard.tsx         the dashboard (wide / compact / mini)
 ├── src/ui/inline.tsx            transcript gutter and the bar above the prompt
 ├── src/ui/model.ts, theme.ts    the view model, actions, theme-key colors
@@ -115,8 +117,31 @@ readings (for example, a Write whose target changed during the call and has
 the intended byte size may have landed).
 
 `tool.check` has one observer hook. It records each real call's verdict
-(allow/ask/deny and rule) by `tool_use_id` so the trace can say which
-permission decision applied. It changes nothing.
+(allow/ask/deny, rule, settings hook) by `tool_use_id` so the trace can say
+which permission decision applied. It changes nothing. From `onward.trace`
+`checkVerdict()` also names a mod beneath DevTools whose own `tool.check`
+hook changed the verdict: the outermost link whose decision differs from
+the one beneath it. The innermost link is the baseline.
+
+## Who refused a call
+
+After `next(e)` the `tool.call` hook reads `next.trace`. `callDenier()`
+returns the innermost link that returned `{ deny }`, because the links above
+it only passed the deny on. A link that is not Claude Code's own (`engine`,
+tier `core`) is a mod, named with its tier, and its deny is classified as
+`blocked-by-hook` whatever its words. `explainRefusal()` then picks, most
+certain first: DevTools' own record, that mod, the verdict's mod, settings
+hook, rule or mode, a rejection at the prompt, and last the text.
+
+A mod seated before DevTools in the chain refuses before DevTools' hook runs.
+The `session.append` hook, matched to `door: 'tool-result'`, passes each row
+on, then keeps refused results for `tool_use_id`s the `tool.call` hook never
+saw (`seenCalls`, at most 500). Their mod is only `possible`, read from the
+refusal's leading `name:`. Validation errors and interruptions are skipped.
+
+The permission rules come from `$.settings.read({ source })` for each of
+policy, flag, local, project and user, at `session.start`, when the tab opens,
+on Reload and on `/devtools-permissions`. They are redacted and never written.
 
 ## State
 
@@ -128,8 +153,9 @@ permission decision applied. It changes nothing.
 | `$.state` `trace` | ring buffer of `TraceEvent`, max `maxTimelineEntries` | session |
 | `$.state` `pending`, `view`, `session`, `stats` | paused calls, pane view, session facts, counters | session |
 | `$.state` `lens`, `errorGroups` | Error Lens records (≤80) and groups (≤50) | session; reset by `/clear` |
+| `$.state` `denials`, `permissions` | refused calls with who refused them (≤80); the permission rules last read | session; reset by `/clear` |
 | `$.store` `settings.v1` | mode, recording, rules (no hit counts), schema-versioned | across sessions (4 MiB store limit; the rules are tiny) |
-| module variables | parsed options, `mirror` snapshot, `tool.check` verdicts (≤200) | until the module reloads |
+| module variables | parsed options, `mirror` snapshot, `tool.check` verdicts (≤200), calls seen by `tool.call` (≤500) | until the module reloads |
 
 All concurrent writes go through `update()` (read, apply, write with
 `ifVersion`, retry), so parallel tool calls never lose each other's updates.
@@ -147,7 +173,7 @@ Four render hooks:
 
 | Site | Draws | Reads (and so redraws on) |
 | - | - | - |
-| `Pane` `devtools` | header, legend, the Dashboard and the four tabs (Timeline, Inspector, Breakpoints, Errors) | every atom |
+| `Pane` `devtools` | header, legend, the Dashboard and the five tabs (Timeline, Inspector, Breakpoints, Errors, Permissions) | every atom |
 | `ToolUse` | the engine's row (`next(e)`), a red `●` line when a rule covers the call, the `break on` gutter (hover overlay or its own line) | `settings`, `session` only |
 | `ToolGroup` | the folded row, one `break on <tool>` per tool in it (not while expanded: its rows are `ToolUse`) | `settings`, `session` |
 | `AbovePrompt` | whatever is beneath (`next(e)`), then the bar for the latest call with `t`/`c`/`f`/`d`/`x`, and `e` (why?) when it failed | `settings`, `view`, `trace`, `session` |
