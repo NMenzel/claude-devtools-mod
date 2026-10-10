@@ -6,6 +6,7 @@
 - `/devtools-export` refuses hidden files and folders other than `.claude-devtools/` (`.claude/`, `.mcp.json`, ...), instructions files (`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`), and, outside `.claude-devtools/`, any file that already exists. It can no longer overwrite a build, settings or instructions file.
 - No `package.json` or lockfile: installing the plugin runs no package install. Type-check with `npx -p typescript@5 tsc -p .`.
 - A plugin icon (`.claude-plugin/icon.png`).
+- Directory listing links in `plugin.json`: documentation (the README), support (GitHub issues) and privacy (`docs/SECURITY.md`).
 - README: what each hook does, and what the mod reads, writes and stores.
 - 148 tests.
 
