@@ -116,6 +116,15 @@ describe('exports', () => {
     expect(exportPaths('a\u0007.json', '/w', 'S', false).ok).toBe(false)
   })
 
+  test('~ and environment variables are refused, never written as literal folders', () => {
+    for (const target of ['~/t.json', '~', '$HOME/t.json', '${HOME}/t.json', '%USERPROFILE%\\t.json', '$env:USERPROFILE\\t.json', 'out/$(whoami).json']) {
+      const refused = exportPaths(target, '/w', 'S', false)
+      expect(!refused.ok && refused.error).toContain('not expanded')
+    }
+    expect(exportPaths('out/a~b.json', '/w', 'S', false).ok).toBe(true)
+    expect(exportPaths('out/50%.json', '/w', 'S', false).ok).toBe(true)
+  })
+
   test('an export never names a settings, tool configuration or instructions file', () => {
     for (const target of ['.claude/settings.json', '.mcp.json', '.vscode/settings.json', 'C:\\Users\\me\\.claude\\settings.json', 'CLAUDE.md', 'docs/agents.md', 'CLAUDE.local.md']) {
       expect(exportPaths(target, '/w', 'S', false).ok).toBe(false)

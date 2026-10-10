@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.4
+
+- File breakpoints under your home folder fire on macOS and Linux too: `~/`, `$HOME/` and `%USERPROFILE%\` match the real home path (`/home/<user>/`, `/Users/<user>/`, `C:\Users\<user>\`) and the other way round. Before, `file ~/.ssh/**` never matched a Read of `/home/me/.ssh/id_rsa`.
+- `/devtools-export ~/t.json` (or `$HOME/...`, `%USERPROFILE%\...`) is refused with a message. Before, it wrote into a folder literally named `~` under the working directory.
+- Error Lens treats a path from `/` as POSIX: a backslash there is part of a file name, not a separator, so `/home/me/a\b.txt` no longer gets a wrong parent folder or the Windows line-ending hint.
+- 150 tests.
+
 ## 0.1.3
 
 - The `tool.check` hook returns the permission check's own result unchanged and reads the verdict from the chain's trace, so the plugin directory can confirm the decision stays with the user. It still records the verdict in the timeline.

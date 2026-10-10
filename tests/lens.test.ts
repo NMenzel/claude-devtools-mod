@@ -168,6 +168,11 @@ describe('read-only checks', () => {
       { path: 'C:\\a.txt', role: 'target' },
       { path: 'C:\\', role: 'parent' },
     ])
+    // On POSIX a backslash is part of the name, not a separator.
+    expect(probePlan('Write', 'not-found', { file_path: '/home/me/a\\b.txt' }, [])).toEqual([
+      { path: '/home/me/a\\b.txt', role: 'target' },
+      { path: '/home/me', role: 'parent' },
+    ])
   })
 
   test('terminal color codes are stripped from the kept error', () => {
