@@ -5,7 +5,15 @@
 // one read from the refusal's own words is `possible`.
 
 import type { Denial, PermissionInfo, PermissionRuleRow, PermissionsSnapshot, Refusal, SettingsSourceName, TraceOutcome } from '../../types'
-import { truncate } from './events.ts'
+import { capped, clock, truncate } from './events.ts'
+
+/** The snapshot before the settings files are read. */
+export const UNREAD_PERMISSIONS: PermissionsSnapshot = { readAtMs: 0, rules: [], directories: [], errors: [] }
+
+/** A refused call in a few words: the tool and what it was asked to do. */
+export function denialLabel(denial: Pick<Denial, 'tool' | 'inputSummary'>): string {
+  return denial.inputSummary === '' ? denial.tool : `${denial.tool} ${denial.inputSummary}`
+}
 
 /** The settings files, the one that wins first (managed policy, then --settings, local, project, user). */
 export const SOURCES: readonly SettingsSourceName[] = ['policy', 'flag', 'local', 'project', 'user']
@@ -14,6 +22,7 @@ export const MAX_DENIALS = 80
 const MAX_REASON = 600
 const MAX_RULES_PER_LIST = 200
 const MAX_RULE = 500
+const MAX_READ_ERROR = 200
 
 export const SOURCE_LABEL: Readonly<Record<SettingsSourceName, string>> = {
   policy: 'managed policy',
@@ -134,15 +143,25 @@ function resultText(content: unknown): string {
     .join('\n')
 }
 
-/** Error results, in a tool-result row, for calls DevTools' hook never saw: refused above it. */
-export function unseenRefusals(content: readonly unknown[], isSeen: (toolUseId: string) => boolean): Array<{ toolUseId: string; text: string }> {
+/**
+ * Error results, in a tool-result row, for calls DevTools' hook never saw
+ * (refused above it), and for DevTools' own refusals (`isOwn`), whatever
+ * words the engine's error put in them.
+ */
+export function unseenRefusals(
+  content: readonly unknown[],
+  isSeen: (toolUseId: string) => boolean,
+  isOwn: (toolUseId: string) => boolean = () => false,
+): Array<{ toolUseId: string; text: string }> {
   const out: Array<{ toolUseId: string; text: string }> = []
   for (const block of content) {
     if (block === null || typeof block !== 'object') continue
     const b = block as { type?: unknown; tool_use_id?: unknown; content?: unknown; is_error?: unknown }
-    if (b.type !== 'tool_result' || b.is_error !== true || typeof b.tool_use_id !== 'string' || isSeen(b.tool_use_id)) continue
+    if (b.type !== 'tool_result' || b.is_error !== true || typeof b.tool_use_id !== 'string') continue
+    const isMine = isOwn(b.tool_use_id)
+    if (!isMine && isSeen(b.tool_use_id)) continue
     const text = resultText(b.content).replace(/<\/?tool_use_error>/g, '').trim()
-    if (text === '' || NOT_A_REFUSAL.test(text)) continue
+    if (text === '' || (!isMine && NOT_A_REFUSAL.test(text))) continue
     out.push({ toolUseId: b.tool_use_id, text })
   }
   return out
@@ -176,7 +195,9 @@ export function readPermissions(
     if (defaultMode === undefined && typeof permissions.defaultMode === 'string') defaultMode = { mode: permissions.defaultMode, source }
     for (const path of strings(permissions.additionalDirectories, redact)) directories.push({ path, source })
   }
-  return { readAtMs, ...(defaultMode !== undefined ? { defaultMode } : {}), rules, directories, errors: [...errors] }
+  // Redacted before cut: a parse error can quote the file, and a secret cut short could slip past the patterns.
+  const read = errors.map(error => truncate(redact(capped(error, 4096)), MAX_READ_ERROR))
+  return { readAtMs, ...(defaultMode !== undefined ? { defaultMode } : {}), rules, directories, errors: read }
 }
 
 /** The file that holds a rule, the one that wins first. */
@@ -216,6 +237,18 @@ const BEHAVIOR_MARK = { deny: '✗', ask: '?', allow: '✓' } as const
 
 /** The rules and the refused calls as text: the command's output. */
 export function permissionsReport(snapshot: PermissionsSnapshot, denials: readonly Denial[]): string[] {
+  const out = snapshot.readAtMs === 0 ? ['Rules: not read this session.'] : rulesReport(snapshot)
+  out.push('', denials.length === 0 ? 'Refused calls: none this session.' : `Refused calls (${denials.length}), newest first, times in UTC:`)
+  for (const denial of [...denials].reverse()) {
+    out.push(`  ✗ ${clock(denial.atMs)} ${denialLabel(denial)}`)
+    out.push(`    refused by ${describeRefusal(denial.refusal, snapshot)} (${denial.refusal.certainty})`)
+    out.push(`    reason: ${denial.refusal.reason}`)
+    out.push(`    evidence: ${denial.refusal.evidence}`)
+  }
+  return out
+}
+
+function rulesReport(snapshot: PermissionsSnapshot): string[] {
   const out = [`Default mode: ${snapshot.defaultMode === undefined ? 'default (not set)' : `${snapshot.defaultMode.mode} (${SOURCE_LABEL[snapshot.defaultMode.source]})`}`]
   for (const behavior of BEHAVIORS) {
     const rows = snapshot.rules.filter(row => row.behavior === behavior)
@@ -224,12 +257,5 @@ export function permissionsReport(snapshot: PermissionsSnapshot, denials: readon
   }
   if (snapshot.directories.length > 0) out.push(`Extra directories: ${snapshot.directories.map(dir => `${dir.path} (${SOURCE_LABEL[dir.source]})`).join(', ')}`)
   for (const error of snapshot.errors) out.push(`Not read: ${error}`)
-  out.push('', denials.length === 0 ? 'Refused calls: none this session.' : `Refused calls (${denials.length}), newest first:`)
-  for (const denial of [...denials].reverse()) {
-    out.push(`  ✗ ${new Date(denial.atMs).toISOString().slice(11, 19)} ${denial.tool} ${denial.inputSummary}`.trimEnd())
-    out.push(`    refused by ${describeRefusal(denial.refusal, snapshot)} (${denial.refusal.certainty})`)
-    out.push(`    reason: ${denial.refusal.reason}`)
-    out.push(`    evidence: ${denial.refusal.evidence}`)
-  }
   return out
 }

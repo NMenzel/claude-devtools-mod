@@ -20,6 +20,8 @@ export type World = {
   statted: string[]
   /** What $.settings.read answers, by source (`user`, `project`, ...); a missing source reads as {}. */
   settings: Record<string, unknown>
+  /** What $.settings.read fails with, by source. */
+  settingsErrors: Record<string, string>
   /** What the permission check (tool.check) answers. */
   verdict: { decision: 'allow' | 'ask' | 'deny'; rule?: string; reason?: string; hook?: string }
 }
@@ -42,9 +44,14 @@ export function world(on: On, seed: Record<string, unknown> = {}, withClock = tr
     files: new Map(),
     statted: [],
     settings: {},
+    settingsErrors: {},
     verdict: { decision: 'ask', reason: 'test rules ask' },
   }
-  on('settings.read', ($, e) => ({ value: (w.settings[e.source ?? 'merged'] ?? {}) as Record<string, unknown> }))
+  on('settings.read', ($, e) => {
+    const failure = w.settingsErrors[e.source ?? 'merged']
+    if (failure !== undefined) return { deny: failure }
+    return { value: (w.settings[e.source ?? 'merged'] ?? {}) as Record<string, unknown> }
+  })
   on('store.get', ($, e) => ({ value: w.store.get(e.key) }))
   on('store.set', ($, e) => {
     w.store.set(e.key, JSON.parse(JSON.stringify(e.value)))

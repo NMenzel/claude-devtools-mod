@@ -196,7 +196,7 @@ describe('read-only checks', () => {
     const done = withProbes(record, probes)
     expect(done.probeState).toBe('done')
     expect(done.causes[0]).toMatchObject({ certainty: 'confirmed' })
-    expect(done.causes[0]?.text).toContain('was modified at 12:00:00, during or right after this call')
+    expect(done.causes[0]?.text).toContain('was modified at 12:00:00 UTC, during or right after this call')
     expect(certainties(done, 'possible').some(text => text.includes('may have landed despite the reported error'))).toBe(true)
     expect(done.fixes[0]).toBe('Read the file to check its content before retrying the write.')
   })

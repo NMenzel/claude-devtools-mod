@@ -57,23 +57,210 @@ describe('who refused a call', () => {
     },
     async ($, on) => {
       world(on)
+      // The conversation, as Claude Code keeps it: the call's input is read from here when its refusal arrives.
+      let reads = 0
+      on('session.messages', () => {
+        reads += 1
+        const uses = [
+          { tool_use_id: 'tu-2', tool: 'Bash', input: { command: 'git reset --hard' } },
+          { tool_use_id: 'tu-2b', tool: 'Bash', input: { command: 'git clean -fdx' } },
+        ]
+        return { value: [{ role: 'assistant', text: '', toolUses: uses }] }
+      })
       const ran = tools(on)
       dialog(on, [])
       await start($)
       await $.tool.call({ tool: 'Bash', command: 'git reset --hard', tool_use_id: 'tu-2' })
+      await $.tool.call({ tool: 'Bash', command: 'git clean -fdx', tool_use_id: 'tu-2b' })
       expect(ran).toEqual([])
-      // Claude Code then stores the refusal as the call's tool result.
+      // Claude Code then stores both refusals as the calls' tool results, in one row.
+      const refused = (id: string) => ({ type: 'tool_result', tool_use_id: id, content: 'blast-radius: the user pressed Cancel on this command.', is_error: true })
       await $.session.append({
-        message: { type: 'user', role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tu-2', content: 'blast-radius: the user pressed Cancel on this command.', is_error: true }] },
+        message: { type: 'user', role: 'user', content: [refused('tu-2'), refused('tu-2b')] },
         door: 'tool-result',
         origin: { kind: 'tool', tool: 'Bash' },
         uuid: 'row-2',
       })
       const text = await run($, 'bpp')
+      // The refused command is named, read from the model's tool_use block; the list says its times are UTC.
+      expect(text).toContain('newest first, times in UTC:')
+      expect(text).toContain('✗ 12:00:00 Bash git reset --hard')
+      expect(text).toContain('✗ 12:00:00 Bash git clean -fdx')
       expect(text).toContain('refused by probably mod blast-radius (possible)')
       expect(text).toContain("refused before Claude DevTools' hook ran")
+      // The conversation is read once for the row, not once per refusal.
+      expect(reads).toBe(1)
     },
   )
+
+  test('a call DevTools\' own guard refused is recorded, confirmed as DevTools', async ($, on) => {
+    // The clock fails while the call is held, so the guard refuses it; it works again for the tool result.
+    // Its words ("is not available") read like a tool that is not there, which is no refusal for anyone else.
+    let isClockBroken = false
+    on('clock.now', () => (isClockBroken ? { deny: '$.clock is not available' } : { value: Date.UTC(2026, 9, 8, 12, 0, 0) }))
+    world(on, {}, false)
+    const ran = tools(on)
+    dialog(on, [])
+    await start($)
+    await run($, 'devtools-break', 'command rm -rf')
+    isClockBroken = true
+    const result = await $.tool.call({ tool: 'Bash', command: 'rm -rf /tmp/x', tool_use_id: 'tu-8' })
+    isClockBroken = false
+    expect(result).toMatchObject({ deny: expect.stringContaining('breakpoint guard failed') })
+    expect((result as { deny: string }).deny).toContain('is not available')
+    expect(ran).toEqual([])
+    await $.session.append({
+      message: { type: 'user', role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tu-8', content: (result as { deny: string }).deny, is_error: true }] },
+      door: 'tool-result',
+      origin: { kind: 'tool', tool: 'Bash' },
+      uuid: 'row-8',
+    })
+    const text = await run($, 'bpp')
+    expect(text).toContain('refused by Claude DevTools (your breakpoint) (confirmed)')
+    expect(text).toContain('evidence: Claude DevTools recorded its own decision')
+    // It was never recorded, and pressing it says so.
+    const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+    await ui.press({ key: 'tab-permissions' })
+    await ui.press({ key: 'den-tu-8' })
+    expect(await ui.find({ type: 'Text', text: /guard refused the call before it was recorded/ })).toBeDefined()
+    await ui.unmount()
+  })
+
+  test('a rejection and its note reach Claude even when clearing the pause fails', async ($, on) => {
+    let isPendingBroken = false
+    on('state.set', ($, e, next) => (isPendingBroken && (e as { key?: string }).key === 'pending' ? { deny: 'state unavailable' } : next(e)))
+    on('tool.call', { tool: 'AskUserQuestion' }, (_, e) => {
+      isPendingBroken = true
+      const question = (e as unknown as { questions: Array<{ question: string }> }).questions[0]?.question ?? ''
+      return { result: { questions: [], answers: { [question]: 'use git clean instead' } } }
+    })
+    world(on)
+    const ran = tools(on)
+    await start($)
+    await run($, 'devtools-break', 'command rm -rf')
+    const result = await $.tool.call({ tool: 'Bash', command: 'rm -rf /tmp/x', tool_use_id: 'tu-15' })
+    isPendingBroken = false
+    expect(result).toMatchObject({ deny: expect.stringContaining('Their note: "use git clean instead"') })
+    expect(ran).toEqual([])
+  })
+
+  test('a call rejected at its pause, whose hook then failed, is recorded once', async ($, on) => {
+    // Reject is pressed and its refusal kept; then counting it fails, so the hook fails and the guard refuses it too.
+    let isStatsBroken = false
+    on('state.set', ($, e, next) => (isStatsBroken && (e as { key?: string }).key === 'stats' ? { deny: 'state unavailable' } : next(e)))
+    on('tool.call', { tool: 'AskUserQuestion' }, (_, e) => {
+      isStatsBroken = true
+      const question = (e as unknown as { questions: Array<{ question: string }> }).questions[0]?.question ?? ''
+      return { result: { questions: [], answers: { [question]: 'Reject' } } }
+    })
+    world(on)
+    tools(on)
+    await start($)
+    await run($, 'devtools-break', 'command rm -rf')
+    const result = await $.tool.call({ tool: 'Bash', command: 'rm -rf /tmp/x', tool_use_id: 'tu-10' })
+    isStatsBroken = false
+    expect(result).toMatchObject({ deny: expect.stringContaining('breakpoint guard failed') })
+    await $.session.append({
+      message: { type: 'user', role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tu-10', content: (result as { deny: string }).deny, is_error: true }] },
+      door: 'tool-result',
+      origin: { kind: 'tool', tool: 'Bash' },
+      uuid: 'row-10',
+    })
+    const text = await run($, 'bpp')
+    expect(text.match(/✗ \d\d:\d\d:\d\d Bash/g)).toHaveLength(1)
+    expect(text).toContain('the developer rejected this Bash call')
+  })
+
+  test('a guard refusal is recorded even if the debugger was turned off before its result arrived', async ($, on) => {
+    let isClockBroken = false
+    on('clock.now', () => (isClockBroken ? { deny: 'clock unavailable' } : { value: Date.UTC(2026, 9, 8, 12, 0, 0) }))
+    world(on, {}, false)
+    tools(on)
+    dialog(on, [])
+    await start($)
+    await run($, 'devtools-break', 'command rm -rf')
+    isClockBroken = true
+    const result = await $.tool.call({ tool: 'Bash', command: 'rm -rf /tmp/x', tool_use_id: 'tu-16' })
+    isClockBroken = false
+    await run($, 'devtools-disable', 'off')
+    await $.session.append({
+      message: { type: 'user', role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tu-16', content: (result as { deny: string }).deny, is_error: true }] },
+      door: 'tool-result',
+      origin: { kind: 'tool', tool: 'Bash' },
+      uuid: 'row-16',
+    })
+    expect(await run($, 'bpp')).toContain('refused by Claude DevTools (your breakpoint) (confirmed)')
+  })
+
+  test('a refusal at a pause is kept when the clock fails as it is recorded', async ($, on) => {
+    let isClockBroken = false
+    on('clock.now', () => (isClockBroken ? { deny: 'clock unavailable' } : { value: Date.UTC(2026, 9, 8, 12, 0, 0) }))
+    on('tool.call', { tool: 'AskUserQuestion' }, (_, e) => {
+      isClockBroken = true
+      const question = (e as unknown as { questions: Array<{ question: string }> }).questions[0]?.question ?? ''
+      return { result: { questions: [], answers: { [question]: 'Reject' } } }
+    })
+    world(on, {}, false)
+    tools(on)
+    await start($)
+    await run($, 'devtools-break', 'command rm -rf')
+    const result = await $.tool.call({ tool: 'Bash', command: 'rm -rf /tmp/x', tool_use_id: 'tu-11' })
+    isClockBroken = false
+    expect(result).toMatchObject({ deny: expect.stringContaining('the developer rejected') })
+    const text = await run($, 'bpp')
+    expect(text).toContain('✗ 12:00:00 Bash rm -rf /tmp/x')
+    expect(text).toContain('refused by Claude DevTools (your breakpoint) (confirmed)')
+  })
+
+  test('the guard answers with each call\'s own plan, not a snapshot another call moved', async ($, on) => {
+    let isClockBroken = false
+    on('clock.now', () => (isClockBroken ? { deny: 'clock unavailable' } : { value: Date.UTC(2026, 9, 8, 12, 0, 0) }))
+    world(on, {}, false)
+    const ran = tools(on)
+    dialog(on, [])
+    await start($)
+    await run($, 'devtools-break', 'tool Bash --after 3')
+    await $.tool.call({ tool: 'Bash', command: 'ls first', tool_use_id: 'tu-12' })
+    // Two parallel calls: the first counted is hit 2 (it runs), the second hit 3 (it pauses). Both hooks then fail.
+    isClockBroken = true
+    const results = await Promise.all([
+      $.tool.call({ tool: 'Bash', command: 'ls a', tool_use_id: 'tu-13' }),
+      $.tool.call({ tool: 'Bash', command: 'ls b', tool_use_id: 'tu-14' }),
+    ])
+    isClockBroken = false
+    expect(results.filter(one => typeof (one as { deny?: unknown }).deny === 'string')).toHaveLength(1)
+    expect(ran).toHaveLength(2)
+  })
+
+  test('a guard refusal after the call was recorded closes its timeline event and reaches Error Lens', async ($, on) => {
+    let isClockBroken = false
+    on('clock.now', () => (isClockBroken ? { deny: 'clock unavailable' } : { value: Date.UTC(2026, 9, 8, 12, 0, 0) }))
+    // Continue is pressed, then the clock fails before the call is let through.
+    on('tool.call', { tool: 'AskUserQuestion' }, (_, e) => {
+      isClockBroken = true
+      const question = (e as unknown as { questions: Array<{ question: string }> }).questions[0]?.question ?? ''
+      return { result: { questions: [], answers: { [question]: 'Continue' } } }
+    })
+    world(on, {}, false)
+    const ran = tools(on)
+    await start($)
+    await run($, 'devtools-break', 'command rm -rf')
+    const result = await $.tool.call({ tool: 'Bash', command: 'rm -rf /tmp/x', tool_use_id: 'tu-9' })
+    isClockBroken = false
+    expect(result).toMatchObject({ deny: expect.stringContaining('breakpoint guard failed') })
+    expect(ran).toEqual([])
+    await $.session.append({
+      message: { type: 'user', role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tu-9', content: (result as { deny: string }).deny, is_error: true }] },
+      door: 'tool-result',
+      origin: { kind: 'tool', tool: 'Bash' },
+      uuid: 'row-9',
+    })
+    const text = await run($, 'bpp')
+    expect(text).toContain('Bash rm -rf /tmp/x')
+    expect(text).toContain('refused by Claude DevTools (your breakpoint) (confirmed)')
+    expect(await run($, 'devtools-status')).toContain('1 denied')
+    expect(await run($, 'devtools-errors')).toContain('Bash')
+  })
 
   test('a permission rule is named with the settings file that holds it', async ($, on) => {
     const w = world(on)
@@ -177,6 +364,7 @@ describe('the Permissions tab on narrow panes and other surfaces', () => {
       await narrow.press({ key: 'tab-permissions' })
       const row = await narrow.find({ type: 'Button', key: 'den-tu-7' })
       expect((row?.text ?? '').length).toBeLessThanOrEqual(32)
+      expect((await narrow.find({ type: 'Text', text: /^REFUSED CALLS/ }))?.text.length).toBeLessThanOrEqual(32)
       for (const text of (await narrow.findAll({ type: 'Text' })).map(one => one.text)) expect(text.length).toBeLessThanOrEqual(40)
       // A rule row's mark, rule and file fit the pane together.
       const ruleRow = (await narrow.findAll({ type: 'Text' })).map(one => one.text)
@@ -207,6 +395,18 @@ describe('the current permissions', () => {
     expect(text).toContain('✗ deny  Read(.env)  · managed policy 🔒')
     expect(text).toContain('✓ allow Bash(npm test:*)  · ~/.claude/settings.json')
     expect(await run($, 'bpp')).toBe(text)
+  })
+
+  test('a settings file that cannot be read is named, its error redacted', async ($, on) => {
+    const w = world(on)
+    const key = ['sk-', 'ant-api03-ABCDEFGHIJKLMNOPQRSTUV'].join('')
+    w.settingsErrors.user = `Unexpected token } in JSON at position 41: {"env": {"ANTHROPIC_API_KEY": "${key}"}`
+    tools(on)
+    dialog(on, [])
+    await start($)
+    const text = await run($, 'bpp')
+    expect(text).toMatch(/Not read: user: .*Unexpected token.*\[REDACTED\]/)
+    expect(text).not.toContain('ant-api03')
   })
 
   test('nothing is read or recorded in off mode', async ($, on) => {

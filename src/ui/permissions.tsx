@@ -6,8 +6,8 @@
 import type { RenderElement } from 'claude-code'
 
 import type { PermissionRuleRow } from '../../types'
-import { truncate } from '../core/events.ts'
-import { describeRefusal, SOURCE_LABEL } from '../core/permissions.ts'
+import { clock, clockUtc, oneLine, truncate } from '../core/events.ts'
+import { denialLabel, describeRefusal, SOURCE_LABEL } from '../core/permissions.ts'
 import type { PaneActions, PaneModel, Table } from './model.ts'
 import { C } from './theme.ts'
 
@@ -17,10 +17,6 @@ const BEHAVIOR = {
   allow: { mark: '✓', color: 'success' },
 } as const satisfies Record<PermissionRuleRow['behavior'], { mark: string; color: string }>
 
-function clock(ms: number): string {
-  return new Date(ms).toISOString().slice(11, 19)
-}
-
 export function permissionsView(els: Table, m: PaneModel, act: PaneActions, width: number): RenderElement {
   const { Box, Text, Button } = els
   const p = m.permissions
@@ -29,8 +25,8 @@ export function permissionsView(els: Table, m: PaneModel, act: PaneActions, widt
   const rows: RenderElement[] = []
 
   rows.push(
-    <Text key="den-title" bold>
-      {m.denials.length === 0 ? 'REFUSED CALLS · none this session' : `REFUSED CALLS · ${m.denials.length}, newest first`}
+    <Text key="den-title" bold wrap="truncate-end">
+      {truncate(m.denials.length === 0 ? 'REFUSED CALLS · none this session' : `REFUSED CALLS · ${m.denials.length}, newest first · UTC`, width)}
     </Text>,
   )
   for (const denial of [...m.denials].reverse().slice(0, maxDenials)) {
@@ -39,14 +35,14 @@ export function permissionsView(els: Table, m: PaneModel, act: PaneActions, widt
       <Button
         key={`den-${denial.id}`}
         plain
-        label={truncate(`✗ ${clock(denial.atMs)} ${denial.tool}${denial.inputSummary !== '' ? ` ${denial.inputSummary}` : ''}`, width - 2)}
+        label={truncate(`✗ ${clock(denial.atMs)} ${denialLabel(denial)}`, width - 2)}
         onPress={() => act.openDenial(denial.id)}
       />,
       <Text key={`den-by-${denial.id}`} color={sure ? 'success' : 'warning'} wrap="truncate-end">
         {truncate(`  ${sure ? '✔' : '?'} by ${describeRefusal(denial.refusal, p)}`, width)}
       </Text>,
       <Text key={`den-why-${denial.id}`} dimColor wrap="truncate-end">
-        {truncate(`  "${denial.refusal.reason.replace(/\s*\n\s*/g, ' ')}"`, width)}
+        {truncate(`  "${oneLine(denial.refusal.reason)}"`, width)}
       </Text>,
     )
   }
@@ -61,7 +57,7 @@ export function permissionsView(els: Table, m: PaneModel, act: PaneActions, widt
   const mode = p.defaultMode === undefined ? 'default (not set)' : `${p.defaultMode.mode} (${SOURCE_LABEL[p.defaultMode.source]})`
   rows.push(
     <Text key="rules-title" bold wrap="truncate-end">
-      {truncate(p.readAtMs === 0 ? 'RULES · not read yet' : `RULES · ${p.rules.length} · default mode ${mode} · read ${clock(p.readAtMs)}`, width)}
+      {truncate(p.readAtMs === 0 ? 'RULES · not read yet' : `RULES · ${p.rules.length} · default mode ${mode} · read ${clockUtc(p.readAtMs)}`, width)}
     </Text>,
   )
   if (p.readAtMs !== 0 && p.rules.length === 0) {

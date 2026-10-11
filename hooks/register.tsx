@@ -8,7 +8,7 @@
 // options `register` receives are kept in module variables.
 
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register, TraceEntry } from 'claude-code'
+import type { EngineInterface, PromptOrigin, Register, TraceEntry } from 'claude-code'
 
 import type {
   ArmState,
@@ -31,9 +31,20 @@ import type {
   ViewState,
 } from '../types'
 import { DEFAULT_OPTIONS, defaultSettings, type DevtoolsOptions, parseOptions, parsePersisted, STORE_KEY, toPersisted } from '../src/config/schema.ts'
-import { criteriaMatch, describeBreakpoint, nextBreakpointId, parseBreakpointSpec, SPEC_HELP, validateBreakpoint } from '../src/core/breakpoints.ts'
+import {
+  criteriaMatch,
+  describeBreakpoint,
+  evaluateCall,
+  evaluateError,
+  nextBreakpointId,
+  parseBreakpointSpec,
+  SPEC_HELP,
+  validateBreakpoint,
+} from '../src/core/breakpoints.ts'
 import {
   classifyResult,
+  type Counted,
+  counted,
   DISARMED,
   interpretAnswer,
   type Planned,
@@ -44,6 +55,8 @@ import {
   wouldPause,
 } from '../src/core/controller.ts'
 import {
+  asRecord,
+  clock,
   errorTextOf,
   normalizeCall,
   type NormalizedCall,
@@ -87,6 +100,7 @@ import {
   permissionsReport,
   readPermissions,
   SOURCES,
+  UNREAD_PERMISSIONS,
   unseenRefusals,
 } from '../src/core/permissions.ts'
 import { checkSimulation, synthesize } from '../src/core/simulation.ts'
@@ -96,7 +110,7 @@ import { type Offer, renderBar, renderGutter } from '../src/ui/inline.tsx'
 import type { Layout } from '../src/ui/model.ts'
 import { type PaneActions, renderPane } from '../src/ui/pane.tsx'
 
-const VERSION = '0.2.0'
+const VERSION = '0.2.1'
 const PANE = 'devtools'
 
 // The $.state values kept for the session (declared in ../types/index.d.ts):
@@ -121,8 +135,7 @@ const STATS = atom({ plugin: 'devtools', key: 'stats' } as const, {
 const LENS = atom({ plugin: 'devtools', key: 'lens' } as const, [])
 const GROUPS = atom({ plugin: 'devtools', key: 'errorGroups' } as const, [])
 const DENIALS = atom({ plugin: 'devtools', key: 'denials' } as const, [])
-const UNREAD: PermissionsSnapshot = { readAtMs: 0, rules: [], directories: [], errors: [] }
-const PERMISSIONS = atom({ plugin: 'devtools', key: 'permissions' } as const, UNREAD)
+const PERMISSIONS = atom({ plugin: 'devtools', key: 'permissions' } as const, UNREAD_PERMISSIONS)
 
 type Dollar = EngineInterface
 type ToolResult = { deny: string } | { result: unknown }
@@ -140,27 +153,69 @@ let options: DevtoolsOptions = DEFAULT_OPTIONS
 let optionWarnings: string[] = []
 let summary: SummaryOptions = { maxChars: DEFAULT_OPTIONS.maxSummaryChars, redaction: true, captureRaw: false }
 // Snapshot for the .catch handler, which may not call $ on a re-entry and has
-// one second: the settings, arm and cwd last read. Refreshed on every call.
-const mirror: { settings?: DevtoolsSettings; arm?: ArmState; cwd?: string } = {}
-// tool.check verdicts by tool_use_id, consumed when the call finishes.
-const verdicts = new Map<string, PermissionInfo>()
-// The calls whose tool.call reached DevTools' hook, oldest first: a refused
-// tool result for any other call was refused above DevTools.
-const seenCalls = new Set<string>()
+// one second: the settings (hit counts as last counted), arm, cwd and whether
+// anyone can answer, as last read or written.
+const mirror: { settings?: DevtoolsSettings; arm?: ArmState; cwd?: string; isInteractive?: boolean } = {}
+
+/** What DevTools noted about a call its tool.call hook saw (or its guard refused). */
+type CallNote = {
+  /** The permission verdict tool.check reached, until the call finishes. */
+  verdict?: PermissionInfo
+  /** The rules with this call counted, until it is planned: the guard plans with them if the hook fails in between. */
+  counted?: Counted
+  /** Whether the call's own plan holds it: the guard's answer once the hook has planned. */
+  holds?: boolean
+  /** Refused by the .catch guard, which may not call $: recorded when its tool result is stored. */
+  isGuardRefused?: true
+}
+
+// Notes by tool_use_id, oldest first, at most 500: a refused tool result for a
+// call with no note was refused above DevTools.
+const notes = new Map<string, CallNote>()
 let localSeq = 0
+
+/** A call's note, made the first time it is needed; none without a tool_use_id. */
+function noteOf(toolUseId: string | undefined): CallNote | undefined {
+  if (toolUseId === undefined) return undefined
+  let found = notes.get(toolUseId)
+  if (found === undefined) {
+    for (const key of notes.keys()) {
+      if (notes.size < 500) break
+      notes.delete(key)
+    }
+    found = {}
+    notes.set(toolUseId, found)
+  }
+  return found
+}
 
 /** Keeps the verdict a real call reached, and the mod that set it if one changed it beneath this hook. */
 function noteVerdict(toolUseId: string | undefined, trace: readonly TraceEntry<'tool.check'>[]): void {
   const verdict = checkVerdict(trace)
-  if (toolUseId === undefined || verdict === undefined) return
-  if (verdicts.size > 200) verdicts.clear()
-  verdicts.set(toolUseId, verdict)
+  if (verdict === undefined) return
+  const note = noteOf(toolUseId)
+  if (note !== undefined) note.verdict = verdict
 }
 
-function noteSeen(toolUseId: string | undefined): void {
-  if (toolUseId === undefined) return
-  if (seenCalls.size >= 500) seenCalls.delete(seenCalls.values().next().value as string)
-  seenCalls.add(toolUseId)
+/** Whether a pause plan holds the call: headless with headlessPause record-only, it is recorded and let through. */
+function holds(isPause: boolean, isInteractive: boolean | undefined): boolean {
+  return isPause && (isInteractive !== false || options.headlessPause !== 'record-only')
+}
+
+/** Whether the guard holds a call whose hook failed: its own plan, else its counted rules, else the last snapshot. */
+function guardHolds(call: NormalizedCall): boolean {
+  const note = call.toolUseId === undefined ? undefined : notes.get(call.toolUseId)
+  if (note?.holds !== undefined) return note.holds
+  const isPause =
+    note?.counted !== undefined ? planCall(note.counted, mirror.arm ?? DISARMED, call, mirror.cwd).plan.kind === 'pause' : wouldPause(mirror.settings, mirror.arm, call, mirror.cwd)
+  return holds(isPause, mirror.isInteractive)
+}
+
+/** The .catch guard's refusal, noted so the call's tool result is recorded as DevTools' own. */
+function guardRefusal(call: ToolCallLike, reason: string): { deny: string } {
+  const note = noteOf(call.tool_use_id)
+  if (note !== undefined) note.isGuardRefused = true
+  return { deny: refusalText('guard', call.tool, reason) }
 }
 
 function message(error: unknown): string {
@@ -221,13 +276,23 @@ async function changeSettings($: Dollar, change: (settings: DevtoolsSettings) =>
   return saved
 }
 
-/** Counts hits in their own state key: the rules, which transcript rows read, do not change. */
-async function bumpHits($: Dollar, ids: readonly string[]): Promise<void> {
-  await update($, HITS, hits => {
-    const counts = { ...hits }
-    for (const id of ids) counts[id] = (counts[id] ?? 0) + 1
-    return counts
+/**
+ * Counts a call's hits in their own state key (the rules, which transcript
+ * rows read, do not change) and returns the rules with the counts including
+ * this call, as planning takes them. One atomic update, so two parallel calls
+ * never plan with the same count. The guard's snapshot takes the counts too.
+ */
+async function bumpHits($: Dollar, settings: DevtoolsSettings, matched: readonly Breakpoint[]): Promise<Counted> {
+  if (matched.length === 0) return counted(settings)
+  const ids = matched.map(bp => bp.id)
+  const counts = await update($, HITS, hits => {
+    const next = { ...hits }
+    for (const id of ids) next[id] = (next[id] ?? 0) + 1
+    return next
   })
+  const after = counted(settings, counts)
+  mirror.settings = after
+  return after
 }
 
 async function forgetHits($: Dollar, ids: readonly string[] | 'all'): Promise<void> {
@@ -357,7 +422,7 @@ async function count($: Dollar, status: TraceStatus): Promise<void> {
  * back only if nobody consumed it first, so of two concurrent calls only one
  * pauses for a single step.
  */
-async function claimPlan($: Dollar, settings: DevtoolsSettings, call: NormalizedCall, cwd: string | undefined): Promise<Planned> {
+async function claimPlan($: Dollar, settings: Counted, call: NormalizedCall, cwd: string | undefined): Promise<Planned> {
   for (let attempt = 0; attempt < 5; attempt += 1) {
     const held = await $.state.get(ARM)
     const arm = held.value ?? DISARMED
@@ -365,7 +430,10 @@ async function claimPlan($: Dollar, settings: DevtoolsSettings, call: Normalized
     const planned = planCall(settings, arm, call, cwd)
     if (planned.arm === arm) return planned
     const written = await $.state.set(ARM, planned.arm, { ifVersion: held.version })
-    if (written.isSet) return planned
+    if (written.isSet) {
+      mirror.arm = planned.arm
+      return planned
+    }
   }
   return planCall(settings, DISARMED, call, cwd)
 }
@@ -383,6 +451,12 @@ async function previewPermission($: Dollar, call: NormalizedCall): Promise<Permi
 // ------------------------------------------------------------------ pausing
 
 async function refuse($: Dollar, event: TraceEvent, status: TraceStatus, outcome: TraceOutcome, deny: string, decision?: PauseDecision): Promise<Held> {
+  // The refusal is kept first, and with the call's start time if the clock fails: a guard may refuse the call next.
+  const now = await $.clock.now().catch(() => event.startedAtMs)
+  if (status === 'denied') {
+    const refusal = explainRefusal({ outcome, text: redactIf(deny), seen: true })
+    await recordDenial($, { id: event.id, tool: event.tool, ...(event.agentId !== undefined ? { agentId: event.agentId } : {}), atMs: now, inputSummary: event.inputSummary, outcome, refusal })
+  }
   await patch($, event.id, {
     status,
     outcome,
@@ -392,11 +466,6 @@ async function refuse($: Dollar, event: TraceEvent, status: TraceStatus, outcome
     resultSummary: `not run: ${outcome}`,
   })
   await count($, status)
-  const now = await $.clock.now()
-  if (status === 'denied') {
-    const refusal = explainRefusal({ outcome, text: redactIf(deny), seen: true })
-    await recordDenial($, { id: event.id, tool: event.tool, ...(event.agentId !== undefined ? { agentId: event.agentId } : {}), atMs: now, inputSummary: event.inputSummary, outcome, refusal })
-  }
   await captureFailure($, event, true, { startedMs: now, endedMs: now, status, outcome, text: deny })
   return { answer: { deny } }
 }
@@ -470,11 +539,16 @@ async function hold(
       }
       return { answer: synthetic }
     }
-    if (decision === 'step') await $.state.set(ARM, { pauseNext: false, step: true })
+    if (decision === 'step') await setArm($, { pauseNext: false, step: true })
     return { decision: decision === 'step' ? 'step' : 'continue', ...(permission !== undefined ? { permission } : {}) }
   } finally {
-    await update($, PENDING, list => list.filter(item => item.id !== event.id))
-    await refreshStatus($)
+    // The answer stands: a failure to clear the pause is only logged, never put in place of a Reject and its note.
+    try {
+      await update($, PENDING, list => list.filter(item => item.id !== event.id))
+      await refreshStatus($)
+    } catch (error) {
+      debug($, `could not clear the pause of ${call.tool}: ${message(error)}`)
+    }
   }
 }
 
@@ -491,8 +565,9 @@ async function afterRun(
   denier: { plugin: string; tier: string } | undefined,
 ): Promise<void> {
   const endedMs = await $.clock.now()
-  const observed = call.toolUseId === undefined ? undefined : verdicts.get(call.toolUseId)
-  if (call.toolUseId !== undefined) verdicts.delete(call.toolUseId)
+  const note = call.toolUseId === undefined ? undefined : notes.get(call.toolUseId)
+  const observed = note?.verdict
+  if (note !== undefined) delete note.verdict
   const permission = observed ?? preview
   const { status, outcome } = classifyResult(result, permission, denier !== undefined && !isEngine(denier))
   const errorText = errorTextOf(result, summary)
@@ -542,11 +617,14 @@ async function afterRun(
   }
   if (outcome !== 'tool-error') return
 
-  const [settings, arm] = await Promise.all([liveSettings($), read($, ARM_ATOM)])
+  const [live, arm] = await Promise.all([liveSettings($), read($, ARM_ATOM)])
+  // The mode may have been turned off while the call ran.
+  if (live.mode === 'off') return
+  // Counted before planning: a hit below its threshold counts too.
+  const settings = await bumpHits($, live, evaluateError(live.breakpoints, call, cwd).hits)
   const planned = planAfterError(settings, arm, call, cwd)
   if (planned.triggered.length === 0) return
   const ids = planned.triggered.map(bp => bp.id)
-  await bumpHits($, ids)
   if (!isRecorded) await addEvent($, { ...event, ...change, breakpointIds: ids, ...(errorCategory !== undefined ? { errorCategory } : {}) })
   else await patch($, event.id, { breakpointIds: [...(event.breakpointIds ?? []), ...ids] })
   if (planned.arm !== arm) await setArm($, planned.arm)
@@ -672,7 +750,7 @@ async function readPermissionSettings($: Dollar): Promise<PermissionsSnapshot> {
       try {
         bySource[source] = await $.settings.read({ source })
       } catch (error) {
-        errors.push(`${source}: ${truncate(message(error), 160)}`)
+        errors.push(`${source}: ${message(error)}`)
       }
     }),
   )
@@ -686,23 +764,71 @@ async function recordDenial($: Dollar, denial: Denial): Promise<void> {
   await update($, DENIALS, list => addDenial(list, denial))
 }
 
-/** Refused tool results for calls whose tool.call never reached DevTools' hook: refused above it. */
+/**
+ * Refused tool results for calls whose tool.call never reached DevTools' hook
+ * (refused above it), and for calls DevTools' own guard refused.
+ */
 async function noteUnseenRefusals($: Dollar, content: readonly unknown[], tool: string, agentId: string | undefined): Promise<void> {
-  const found = unseenRefusals(content, id => seenCalls.has(id))
-  if (found.length === 0 || (await liveSettings($)).mode === 'off') return
-  const now = await $.clock.now()
-  for (const { toolUseId, text } of found) {
-    noteSeen(toolUseId)
-    await recordDenial($, {
-      id: toolUseId,
-      tool,
-      ...(agentId !== undefined ? { agentId } : {}),
-      atMs: now,
-      inputSummary: '',
-      outcome: 'blocked-by-hook',
-      refusal: explainRefusal({ outcome: 'blocked-by-hook', text: redactIf(text), seen: false }),
-    })
+  const isGuard = (id: string): boolean => notes.get(id)?.isGuardRefused === true
+  const found = unseenRefusals(content, id => notes.has(id), isGuard)
+  if (found.length === 0) return
+  // Off records nothing but DevTools' own refusals, made while it was on.
+  const kept = (await liveSettings($)).mode === 'off' ? found.filter(one => isGuard(one.toolUseId)) : found
+  if (kept.length === 0) return
+  const [now, trace, denials] = await Promise.all([$.clock.now(), read($, TRACE), read($, DENIALS)])
+  // A reload empties the notes; a call the old module saw is still in the timeline.
+  const eventOf = (id: string): TraceEvent | undefined => trace.find(one => one.id === id)
+  const toRecord = kept.filter(one => (isGuard(one.toolUseId) || eventOf(one.toolUseId) === undefined) && !denials.some(d => d.id === one.toolUseId))
+  // Recorded already (rejected at its pause, then the hook failed): the guard's mark is done.
+  for (const one of kept) if (!toRecord.includes(one)) delete notes.get(one.toolUseId)?.isGuardRefused
+  const missing = toRecord.filter(one => eventOf(one.toolUseId) === undefined).map(one => one.toolUseId)
+  const inputs = missing.length === 0 ? new Map<string, string>() : await inputsOf($, missing, agentId)
+  for (const { toolUseId, text } of toRecord) {
+    // Each on its own: one that fails to record leaves the rest, and keeps its mark.
+    try {
+      const event = eventOf(toolUseId)
+      const isOwn = isGuard(toolUseId)
+      if (event !== undefined && (event.status === 'pending' || event.status === 'running')) await refuse($, event, 'denied', 'guard-failed', text)
+      else {
+        const outcome: TraceOutcome = isOwn ? 'guard-failed' : 'blocked-by-hook'
+        await recordDenial($, {
+          id: toolUseId,
+          tool,
+          ...(agentId !== undefined ? { agentId } : {}),
+          atMs: now,
+          inputSummary: event?.inputSummary ?? inputs.get(toolUseId) ?? '',
+          outcome,
+          refusal: explainRefusal({ outcome, text: redactIf(text), seen: isOwn }),
+        })
+      }
+      const note = noteOf(toolUseId)
+      if (note !== undefined) delete note.isGuardRefused
+    } catch (error) {
+      debug($, `could not record the refusal of ${toolUseId}: ${message(error)}`)
+    }
   }
+}
+
+/**
+ * What calls DevTools has no event of asked for, read once from the
+ * conversation that made them, summarized as the timeline would; a call not
+ * found is left out.
+ */
+async function inputsOf($: Dollar, ids: readonly string[], agentId: string | undefined): Promise<Map<string, string>> {
+  const found = new Map<string, string>()
+  try {
+    const rows = agentId === undefined ? await $.session.messages() : await $.session.messages({ agentId })
+    if (!Array.isArray(rows)) return found
+    // Newest first: the calls were just made.
+    for (let i = rows.length - 1; i >= 0 && found.size < ids.length; i -= 1) {
+      for (const use of rows[i]?.toolUses ?? []) {
+        if (ids.includes(use.tool_use_id)) found.set(use.tool_use_id, summarizeInput(normalizeCall({ ...use.input, tool: use.tool, tool_use_id: use.tool_use_id }), summary))
+      }
+    }
+  } catch (error) {
+    debug($, `could not read the input of ${ids.join(', ')}: ${message(error)}`)
+  }
+  return found
 }
 
 async function clearDenials($: Dollar): Promise<void> {
@@ -722,10 +848,12 @@ async function showPermissions($: Dollar): Promise<void> {
 
 /** A refused call, opened where its detail is: Error Lens, else the Inspector. */
 async function openDenial($: Dollar, id: string): Promise<void> {
-  const [lens, trace] = await Promise.all([read($, LENS), read($, TRACE)])
+  const [lens, trace, denials] = await Promise.all([read($, LENS), read($, TRACE), read($, DENIALS)])
   if (lens.some(one => one.id === id)) await setView($, { tab: 'errors', lensId: id })
   else if (trace.some(one => one.id === id)) await setView($, { tab: 'inspector', selectedId: id })
-  else await setView($, { notice: 'Refused before Claude DevTools saw the call: its reason is all there is.' })
+  else if (denials.some(one => one.id === id && one.outcome === 'guard-failed')) {
+    await setView($, { notice: "Claude DevTools' guard refused the call before it was recorded: its reason is all there is." })
+  } else await setView($, { notice: 'Refused before Claude DevTools saw the call: its reason is all there is.' })
 }
 
 // ------------------------------------------------------------------ commands
@@ -750,9 +878,9 @@ async function statusText($: Dollar): Promise<string> {
   ]
   const recent = trace.slice(-5)
   if (recent.length > 0) {
-    lines.push('Recent:')
+    lines.push('Recent (UTC):')
     for (const ev of recent) {
-      lines.push(`  ${ev.startedAt.slice(11, 19)} ${statusIcon(ev.status)} ${ev.tool} ${formatDuration(ev.durationMs)} ${ev.simulated ? 'SIMULATED ' : ''}${ev.inputSummary}`)
+      lines.push(`  ${clock(ev.startedAtMs)} ${statusIcon(ev.status)} ${ev.tool} ${formatDuration(ev.durationMs)} ${ev.simulated ? 'SIMULATED ' : ''}${ev.inputSummary}`)
     }
   }
   return lines.join('\n')
@@ -837,15 +965,18 @@ async function exportTrace($: Dollar, args: string): Promise<string> {
   const words = args.split(/\s+/).filter(word => word !== '')
   const wantsMarkdown = words.includes('--md')
   const target = words.find(word => word !== '--md')
-  const [cwd, now, settings, trace, stats, session, errors, errorGroups] = await Promise.all([
+  const [cwd, now, settings, trace, stats, session, errors, errorGroups, denials, permissions] = await Promise.all([
     $.session.cwd(),
     $.clock.now(),
-    loadSettings($),
+    liveSettings($),
     read($, TRACE),
     read($, STATS),
     read($, SESSION),
     read($, LENS),
     read($, GROUPS),
+    read($, DENIALS),
+    // Read now (after /clear nothing has read them yet); the last snapshot if that fails.
+    readPermissionSettings($).catch(() => read($, PERMISSIONS)),
   ])
   const stamp = new Date(now).toISOString().replace(/[:.]/g, '-')
   const paths = exportPaths(target, cwd, stamp, wantsMarkdown)
@@ -867,6 +998,8 @@ async function exportTrace($: Dollar, args: string): Promise<string> {
     events: trace,
     errors,
     errorGroups,
+    denials,
+    permissions,
   })
   const text = serializeExport(built)
   await $.fs.write(paths.json, text)
@@ -876,7 +1009,7 @@ async function exportTrace($: Dollar, args: string): Promise<string> {
     written.push(paths.markdown)
   }
   const privacy = options.redaction ? 'secrets redacted' : 'REDACTION OFF'
-  return `Exported ${trace.length} events and ${errors.length} Error Lens record${errors.length === 1 ? '' : 's'} (${privacy}${options.captureRaw ? ', raw capture included' : ''}) to:\n${written.map(path => `  ${path}`).join('\n')}`
+  return `Exported ${trace.length} events, ${errors.length} Error Lens record${errors.length === 1 ? '' : 's'} and ${denials.length} refused call${denials.length === 1 ? '' : 's'} (${privacy}${options.captureRaw ? ', raw capture included' : ''}) to:\n${written.map(path => `  ${path}`).join('\n')}`
 }
 
 /** Registers the slash commands, each by its literal name; registering again on a reload replaces them. */
@@ -941,6 +1074,13 @@ const ALIASES: Readonly<Record<string, string>> = {
   bpe: 'devtools-errors',
   bpp: 'devtools-permissions',
 }
+
+/**
+ * Where a run came from that is the person's own: their Enter, the Remote
+ * Control bridge, the SDK host, their Slack ping, a follow-up to their own
+ * action in the UI. `unclassified` is not: the engine could not say who sent it.
+ */
+const PERSON_ORIGINS: readonly PromptOrigin['kind'][] = ['composer', 'bridge', 'sdk', 'slack-ping', 'auto-continuation']
 
 async function runCommand($: Dollar, command: string, rawArgs: string): Promise<{ text: string }> {
   const args = rawArgs.trim()
@@ -1040,16 +1180,22 @@ export const register: Register = (on, rawOptions) => {
   summary = { maxChars: options.maxSummaryChars, redaction: options.redaction, captureRaw: options.captureRaw }
 
   on('tool.call', async ($, e, next) => {
-    noteSeen((e as ToolCallLike).tool_use_id)
-    const settings = await liveSettings($)
-    if (settings.mode === 'off') return next(e)
+    const note = noteOf((e as ToolCallLike).tool_use_id)
+    const live = await liveSettings($)
+    if (live.mode === 'off') return next(e)
     const session = await read($, SESSION)
     const cwd = session.cwd === '' ? undefined : session.cwd
     mirror.cwd = cwd
+    mirror.isInteractive = session.isInteractive
     const call = normalizeCall(e as ToolCallLike)
+    const settings = await bumpHits($, live, evaluateCall(live.breakpoints, call, cwd).hits)
+    if (note !== undefined) note.counted = settings
     const { plan } = await claimPlan($, settings, call, cwd)
+    if (note !== undefined) {
+      note.holds = holds(plan.kind === 'pause', session.isInteractive)
+      delete note.counted
+    }
     const hits = plan.kind === 'pass' ? [] : plan.hits.map(bp => bp.id)
-    if (hits.length > 0) await bumpHits($, hits)
 
     const startedMs = await $.clock.now()
     localSeq += 1
@@ -1109,14 +1255,12 @@ export const register: Register = (on, rawOptions) => {
     if (next.error.kind === 're-entry') {
       // The pause dialog itself ($.ui.ask) is an AskUserQuestion call raised beneath this hook.
       if (e.tool === 'AskUserQuestion') return next(e)
-      const nested = normalizeCall(e as ToolCallLike)
-      return wouldPause(mirror.settings, mirror.arm, nested, mirror.cwd) ? { deny: refusalText('guard', e.tool, 'a nested call during a pause') } : next(e)
+      return guardHolds(normalizeCall(e as ToolCallLike)) ? guardRefusal(e as ToolCallLike, 'a nested call during a pause') : next(e)
     }
     if (next.called) return next(e)
-    const call = normalizeCall(e as ToolCallLike)
-    if (wouldPause(mirror.settings, mirror.arm, call, mirror.cwd)) {
+    if (guardHolds(normalizeCall(e as ToolCallLike))) {
       const detail = next.error.message === undefined ? next.error.kind : `${next.error.kind}: ${next.error.message.slice(0, 160)}`
-      return { deny: refusalText('guard', e.tool, detail) }
+      return guardRefusal(e as ToolCallLike, detail)
     }
     return next(e)
   })
@@ -1142,7 +1286,9 @@ export const register: Register = (on, rawOptions) => {
     }
     await update($, SESSION, () => ({ sessionId, isInteractive: e.isInteractive, cwd: e.cwd, surface: e.surface }))
     mirror.cwd = e.cwd
-    await loadSettings($)
+    mirror.isInteractive = e.isInteractive
+    // Also the guard's first snapshot, so it holds from the first call.
+    await liveSettings($)
     // After a hot reload nothing still holds a call from the old module.
     await update($, TRACE, closeStale)
     await update($, PENDING, () => [])
@@ -1196,7 +1342,13 @@ export const register: Register = (on, rawOptions) => {
         'bpp',
       ],
     },
-    async ($, e) => runCommand($, e.command, e.args),
+    async ($, e) => {
+      // DevTools answers you alone: another session, a channel, a schedule or another mod neither changes it nor reads what it kept.
+      if (!PERSON_ORIGINS.includes(e.origin.kind)) {
+        return { text: `Refused: only you can run /${e.command}; this run came from ${e.origin.kind}. Type it at the prompt, or use the DevTools pane.` }
+      }
+      return runCommand($, e.command, e.args)
+    },
   )
 
   // Reads tool results only, and changes none: a call refused by a mod seated
@@ -1284,7 +1436,7 @@ export const register: Register = (on, rawOptions) => {
     const settings = held.value ?? defaultSettings(options)
     if (settings.mode === 'off') return drawn
     const cwd = session.cwd === '' ? undefined : session.cwd
-    const input = e.props.input !== null && typeof e.props.input === 'object' ? (e.props.input as Record<string, unknown>) : {}
+    const input = asRecord(e.props.input)
     const call = normalizeCall({ ...input, tool: e.props.tool, tool_use_id: e.props.tool_use_id })
     const matched = settings.breakpoints.filter(bp => bp.enabled && bp.kind !== 'error' && criteriaMatch(bp, call, cwd))
     const offers: Offer[] = suggestBreakpoints(e.props.tool, input, cwd).map(s => ({ ...s, key: `dt-${s.id}`, rule: findRule(settings.breakpoints, s.kind, s.match) }))
@@ -1300,7 +1452,7 @@ export const register: Register = (on, rawOptions) => {
     if (settings.mode === 'off') return drawn
     const cwd = session.cwd === '' ? undefined : session.cwd
     const calls = e.props.calls.map(one => {
-      const input = one.input !== null && typeof one.input === 'object' ? (one.input as Record<string, unknown>) : {}
+      const input = asRecord(one.input)
       return normalizeCall({ ...input, tool: one.tool })
     })
     const matched = settings.breakpoints.filter(bp => bp.enabled && bp.kind !== 'error' && calls.some(call => criteriaMatch(bp, call, cwd)))

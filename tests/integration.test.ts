@@ -259,6 +259,44 @@ describe('breakpoints', () => {
     expect(events[0]).toMatchObject({ status: 'failed', outcome: 'tool-error', breakpointIds: ['bp1'] })
   })
 
+  test('parallel calls each count their own hit: a --after 2 rule pauses exactly one of two', async ($, on) => {
+    world(on)
+    tools(on)
+    const { asked } = dialog(on, ['Continue', 'Continue'])
+    await start($)
+    await run($, 'devtools-break', 'tool Bash --after 2')
+    await Promise.all([$.tool.call({ tool: 'Bash', command: 'ls a' }), $.tool.call({ tool: 'Bash', command: 'ls b' })])
+    expect(asked).toHaveLength(1)
+    expect(await run($, 'devtools-list')).toContain('hits 2')
+  })
+
+  test('an error rule with a hit threshold counts every failure and acts from the Nth', async ($, on) => {
+    const w = world(on)
+    tools(on, () => ({ isError: true, result: 'x', text: 'Exit code 1' }))
+    dialog(on, [])
+    await start($)
+    await run($, 'devtools-break', 'error Bash --after 2 --action warn')
+    await $.tool.call({ tool: 'Bash', command: 'npm test' })
+    expect(w.toasts.filter(t => t.startsWith('DevTools: Bash failed ('))).toHaveLength(0)
+    await $.tool.call({ tool: 'Bash', command: 'npm test' })
+    expect(w.toasts.filter(t => t.startsWith('DevTools: Bash failed ('))).toHaveLength(1)
+    expect(await run($, 'devtools-list')).toContain('hits 2')
+  })
+
+  test('a failure after the debugger was turned off mid-call counts no hit', async ($, on) => {
+    world(on)
+    // The person turns the debugger off while the call runs; then it fails.
+    on('tool.call', { tool: 'Bash' }, async () => {
+      await run($, 'devtools-disable', 'off')
+      return { isError: true, result: 'x', text: 'Exit code 1' } as never
+    })
+    dialog(on, [])
+    await start($)
+    await run($, 'devtools-break', 'error Bash --action warn')
+    await $.tool.call({ tool: 'Bash', command: 'npm test' })
+    expect(await run($, 'devtools-list')).toContain('hits 0')
+  })
+
   test('warn and record actions never pause', async ($, on) => {
     const w = world(on)
     const ran = tools(on)
@@ -436,6 +474,106 @@ describe('reliability', () => {
     await $.tool.call({ tool: 'Read', file_path: '/work/.env.local' })
     expect(asked).toHaveLength(1)
     expect(ran).toEqual([])
+  })
+
+  test('only the person can run a DevTools command', async ($, on) => {
+    const w = world(on)
+    tools(on)
+    dialog(on, [])
+    await start($)
+    await run($, 'devtools-break', 'tool Bash')
+    const runAs = async (origin: object, command: string, args = ''): Promise<string> =>
+      (await $.command.run({ command, args, origin: origin as never, presentation: { isFullscreen: true, columns: 120 } })).text ?? ''
+    const others = [
+      { kind: 'plugin', name: 'other-mod' },
+      { kind: 'channel', server: 'slack' },
+      { kind: 'peer' },
+      { kind: 'peer-send-message' },
+      { kind: 'scheduled-trigger' },
+      { kind: 'task-notification' },
+      { kind: 'projects-relay' },
+      { kind: 'coordinator' },
+      { kind: 'observer' },
+      { kind: 'unclassified' },
+    ]
+    for (const origin of others) {
+      // Changing and reading alike: nothing is changed, read out, opened or focused.
+      const opened = w.opened.length
+      for (const [command, args] of [
+        ['devtools-disable', 'off'],
+        ['bpc', ''],
+        ['devtools-break', 'clear'],
+        ['bp', 'delete bp1'],
+        ['bpe', 'clear'],
+        ['devtools-export', ''],
+        ['devtools-status', ''],
+        ['bp', ''],
+        ['devtools', ''],
+        ['bpe', ''],
+        ['bpp', ''],
+      ]) {
+        expect(await runAs(origin, command as string, args)).toMatch(/^Refused: only you can run .* Type it at the prompt, or use the DevTools pane\.$/)
+      }
+      expect(w.opened.length).toBe(opened)
+    }
+    expect(await run($, 'devtools-list')).toContain('bp1')
+    for (const kind of ['composer', 'bridge', 'sdk', 'slack-ping', 'auto-continuation']) {
+      expect(await runAs({ kind }, 'devtools-pause')).toBe('The next tool call will pause.')
+    }
+  })
+
+  test('an export carries the hit counts and the rules as read at export time', async ($, on) => {
+    const w = world(on)
+    tools(on)
+    dialog(on, [])
+    await start($)
+    await run($, 'devtools-break', 'tool Bash --action record')
+    await $.tool.call({ tool: 'Bash', command: 'ls' })
+    await $.tool.call({ tool: 'Bash', command: 'ls' })
+    // A rule added after the session started: the export reads the files again.
+    w.settings.project = { permissions: { deny: ['Read(.env)'] } }
+    const exported = await trace($, w)
+    expect(exported.breakpoints[0]?.hitCount).toBe(2)
+    expect(exported.permissions.rules).toEqual([{ behavior: 'deny', rule: 'Read(.env)', source: 'project' }])
+  })
+
+  test('headless with record-only, a hook that fails after letting a call through still lets it through', { options: { headlessPause: 'record-only' } }, async ($, on) => {
+    // The clock works for the call's start and fails for its run: the hook fails after the let-through.
+    let clockFailsFrom = Infinity
+    let clockCalls = 0
+    on('clock.now', () => ((clockCalls += 1) >= clockFailsFrom ? { deny: 'clock unavailable' } : { value: Date.UTC(2026, 9, 8, 12, 0, 0) }))
+    const w = world(on, {}, false)
+    const ran = tools(on)
+    dialog(on, [])
+    await start($, false)
+    await run($, 'devtools-break', 'tool Bash')
+    clockFailsFrom = clockCalls + 2
+    const result = await $.tool.call({ tool: 'Bash', command: 'ls', tool_use_id: 'tu-17' })
+    clockFailsFrom = Infinity
+    expect(result).toMatchObject(BASH_OK)
+    expect(ran).toEqual([{ tool: 'Bash', command: 'ls' }])
+    // The hook did fail after the let-through: its event was never moved on from pending.
+    expect((await trace($, w)).events.find(event => event.id === 'tu-17')?.status).toBe('pending')
+  })
+
+  test('once pause-next is used up, a later call whose hook fails is not held for it', async ($, on) => {
+    let isSettingsBroken = false
+    on('state.get', ($, e, next) => (isSettingsBroken && (e as { key?: string }).key === 'settings' ? { deny: 'state unavailable' } : next(e)))
+    const w = world(on)
+    const ran = tools(on)
+    const { asked } = dialog(on, ['Continue'])
+    await start($)
+    await run($, 'devtools-pause')
+    await $.tool.call({ tool: 'Bash', command: 'ls first', tool_use_id: 'tu-18' })
+    expect(asked).toHaveLength(1)
+    // The next call's hook fails before it plans: the guard judges from its snapshot, where the arm is spent.
+    isSettingsBroken = true
+    const result = await $.tool.call({ tool: 'Bash', command: 'ls second', tool_use_id: 'tu-19' })
+    isSettingsBroken = false
+    expect(result).toMatchObject(BASH_OK)
+    expect(ran.map(one => one.command)).toEqual(['ls first', 'ls second'])
+    // The hook did fail before planning: the second call has no event.
+    expect((await trace($, w)).events.map(event => event.id)).toEqual(['tu-18'])
   })
 
   test('a reload registers the commands again without breaking anything', async ($, on) => {

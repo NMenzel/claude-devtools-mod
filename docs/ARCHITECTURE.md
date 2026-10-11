@@ -40,7 +40,7 @@ tested without the engine.
 ## A tool call, end to end
 
 ```text
-tool.call ─► loadSettings ─► normalizeCall ─► claimPlan (planCall + atomic arm claim)
+tool.call ─► liveSettings ─► normalizeCall ─► bumpHits (one atomic count) ─► claimPlan (planCall + atomic arm claim)
               │ mode off: next(e) at once
               ▼
         record "pending"/"running" event (bounded ring)
@@ -78,10 +78,12 @@ result returns without calling it, so the tool never runs.
   passes through. Any other nested call is judged from the snapshot and
   refused if a breakpoint would hold it.
 - **`next.called`**: replays the settled result. Nothing runs twice.
-- **The hook failed before deciding**: `wouldPause()` re-evaluates the call
-  against a module-level snapshot (`mirror`) of the last-read settings and
-  arm. A call a breakpoint would hold is refused. Every other call proceeds,
-  so a recording failure never blocks ordinary work.
+- **The hook failed**: `guardHolds()` answers with the call's own plan when
+  the hook got that far, else plans with the call's counted rules, else with
+  `wouldPause()` over a module-level snapshot (`mirror`) of the settings and
+  arm as last read or written. A call a breakpoint would hold is refused
+  (headless with `record-only`, none is). Every other call proceeds, so a
+  recording failure never blocks ordinary work.
 
 ### Error Lens
 
@@ -136,8 +138,31 @@ hook, rule or mode, a rejection at the prompt, and last the text.
 A mod seated before DevTools in the chain refuses before DevTools' hook runs.
 The `session.append` hook, matched to `door: 'tool-result'`, passes each row
 on, then keeps refused results for `tool_use_id`s the `tool.call` hook never
-saw (`seenCalls`, at most 500). Their mod is only `possible`, read from the
-refusal's leading `name:`. Validation errors and interruptions are skipped.
+saw (no entry in `notes`, at most 500, and no timeline event, which outlives a reload).
+Their mod is only `possible`, read from the refusal's leading `name:` or
+`[name]`. Validation errors and interruptions are skipped. Only then is the
+refused call's input read, from the conversation (`$.session.messages`), so
+the row shows what was refused, once per row; nothing is read for the calls DevTools sees.
+Both installed mods sit in the `user` tier and a mod cannot set its place in
+it, so whether another mod is before or after DevTools is Claude Code's
+choice.
+
+Everything the module notes about a call lives in one bounded table,
+`notes`, by `tool_use_id`: the permission verdict until the call finishes,
+its counted rules until it is planned, whether its plan holds it, and whether
+the guard refused it. The `.catch` guard may not call `$`; a call it refuses
+is marked there and recorded when its tool result is stored, as outcome
+`guard-failed`: DevTools' own refusal, confirmed, unless the call's refusal
+was recorded already, and even if the debugger was turned off meanwhile.
+`refuse()` records the refusal before anything else, with the call's start
+time if the clock fails. A failure to clear a pause after the answer is only
+logged: the person's Reject and note still reach Claude.
+
+Hit counts are written in one `update` before a call is planned, and the
+call plans with the counts that update returned. `planCall` and
+`planAfterError` take only `Counted` rules, made by `counted()` (the counts
+the native layer wrote) or `countCall()` (a snapshot, counted), so a call is
+never planned uncounted, and parallel calls never plan with the same count.
 
 The permission rules come from `$.settings.read({ source })` for each of
 policy, flag, local, project and user, at `session.start`, when the tab opens,
@@ -204,10 +229,11 @@ breakpoint editor falls back to a mode button and a pointer to
 
 ## Trace schema
 
-`schema: "claude-devtools.trace"`, `schemaVersion: 2`. The export holds the
+`schema: "claude-devtools.trace"`, `schemaVersion: 3`. The export holds the
 generator, session id, redaction and raw-capture flags, mode, counters,
-breakpoints, events, and the Error Lens `errors` and `errorGroups`
-(version 2 added these two). `validateExport()` checks it. The tests run it on
+breakpoints, events, the Error Lens `errors` and `errorGroups` (version 2
+added these two), and the refused calls `denials` with the `permissions`
+snapshot (version 3). `validateExport()` checks it. The tests run it on
 every export they produce. If an export would exceed 3.5 MB (under the 4 MiB
 `$.fs.write` limit), the oldest events are dropped and `droppedEvents` says how
 many.

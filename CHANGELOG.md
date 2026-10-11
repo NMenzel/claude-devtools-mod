@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.2.1
+
+- A call refused by a mod seated before DevTools now shows its command (`✗ 12:35:33 Bash rm -rf /tmp/junk`), read from the conversation when the refusal arrives. Before, the row named the tool alone.
+- DevTools' own guard refusals are recorded: in the Permissions tab as DevTools' own, confirmed, and in the timeline and Error Lens when the call was recorded. Before, they appeared nowhere. The guard answers with each call's own plan, so a call another parallel call's count moved is neither refused nor let through by mistake. A refusal at a pause is kept even when the clock fails, and your Reject and its note reach Claude even when clearing the pause fails. Headless with `record-only`, a call let through stays let through.
+- Every DevTools command is refused unless you started it (typed, Remote Control, the SDK host, your Slack ping, or a follow-up to your own action in the UI): another session, a channel, a schedule or another mod cannot switch off your breakpoints, open the pane under your typing, or read your rules and refused calls. A refusal points to the prompt and the pane, which always work.
+- Times say they are UTC (they always were): once in a list's header, or after a time on its own. One shared helper formats them.
+- Hit thresholds hold under parallel calls: each call counts its hit in one atomic write and plans with that count, so a `--after N` rule starts acting exactly on the Nth hit (and on every hit after it). Error rules with `--after N` now count every failure; before, they never reached N.
+- Exports (schema version 3) carry the refused calls and the permission rules, read again at export time, in the JSON and in a Markdown "Permissions" section. Exported breakpoints carry their real hit counts; before, always 0.
+- A settings file that cannot be read is named with its error redacted; before, the error was kept as is.
+- The dashboard has a REFUSED panel: the latest three refused calls and who refused each, one press from the detail.
+- Redaction catches Stripe keys (`sk_live_…`, `rk_test_…`, `pk_live_…`), Slack refresh tokens (`xoxe.…`) and Twilio API keys (`SK` + 32 hex).
+- A hot reload no longer misreads a recorded call already in flight as refused before DevTools: a call in the timeline counts as seen. With recording off, a call no breakpoint matched is not in the timeline, so this still happens to it. The verdict table drops its oldest entry when full instead of emptying.
+- Documented: installed mods all sit in the `user` tier and cannot set their order, so a mod like Blast Radius can sit before DevTools, where its refusals are named as possible only.
+- An MCP tool's timeline summary dropped no `password`, `token` or `api_key` argument (it was redacted by shape only); it is now redacted by key, as its stored input is.
+- Summaries cut a huge command or error at 64 KB before redaction, and join lines in linear time: a long run of spaces or blank lines no longer stalls a call.
+- New call: `$.session.messages`, read only when a mod before DevTools refuses a call, for that call's input.
+- 195 tests.
+
 ## 0.2.0
 
 - **Permissions tab** (`a`): each refused call, newest first, with who refused it and the exact reason Claude was given. The refuser can be a permission rule (with the settings file that holds it), the permission mode, you at the permission prompt, a `PreToolUse` settings hook, another mod (by name and tier), or Claude DevTools itself. Below the calls: your allow, ask and deny rules from each settings file (managed policy 🔒, `--settings`, local, project, user), the default mode and extra directories. Rules are read at session start, when the tab opens and on Reload (`r`), and never written.

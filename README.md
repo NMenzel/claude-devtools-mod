@@ -179,8 +179,12 @@ wide (set `openOnStart` to false to stop that).
 - **BREAKPOINTS**: the category toggles, every rule with its state, match, action and hit count (press a rule to enable or disable it), and the totals.
 - **CALLS**: one colored cell per call (green ok, red failed, amber denied, purple simulated), the totals, and counts per family (shell, read, search, edit, web, mcp).
 - **ERRORS** (only after a failure): the latest kinds of failure, repeats counted (`✗ 3× Bash · exit-code · npm ERR! …`). Press one to open its Error Lens.
+- **REFUSED** (only after a refusal): the latest three refused calls and who refused each (`✗ Bash rm -rf build · by mod blast-radius (append tier)`). Press one to open its detail.
 - **TIMELINE**: the newest calls. Press one to inspect it.
 - **Actions**: `p` pause next call, `r` recording, `m` cycle mode, `s` export.
+
+Times are UTC, as a mod's environment has no time zone: a list says so once in
+its header, and a time on its own ends in `UTC`.
 
 Docked from 110 columns it lays out two columns (rules and calls on the
 left, the timeline on the right). Narrower, it stacks. Inline above the
@@ -249,9 +253,16 @@ the exact reason Claude was given:
 Each attribution is `✔ confirmed` when the verdict or the call chain shows it.
 A mod seated *before* DevTools in the chain refuses before DevTools' hook runs.
 DevTools still catches that refusal, from the tool result Claude Code stores,
-and marks the mod `? possible`, read from the refusal's own words
-(`blast-radius: …`). Press a call to open its Error Lens, which names the mod
+shows the command it refused (read from Claude's request), and marks the mod
+`? possible`, read from the refusal's own words (`blast-radius: …` or
+`[blast-radius] …`). Press a call to open its Error Lens, which names the mod
 too.
+
+Which of two installed mods comes first is Claude Code's choice: both sit in
+the `user` tier, and a mod cannot move itself. So a mod you installed, such as
+Blast Radius, may well sit before DevTools, and its refusals are then named as
+possible, never confirmed. A mod that starts its refusals with its plugin name
+(`blast-radius: …`) is named by that name rather than a display name.
 
 Below the calls are your **permission rules** as each settings file holds them
 (managed policy, `--settings`, local, project, user): deny, ask and allow, each
@@ -283,7 +294,14 @@ empties the refused list.
 | `/bp <rule>` | Short for `/devtools-break`; `/bp` alone lists the breakpoints and the rule language |
 | `/bpl` · `/bpn` · `/bpc` · `/bpe` · `/bpp` | Short for `/devtools-list`, `/devtools-pause` (next call), `/devtools-continue`, `/devtools-errors` and `/devtools-permissions` |
 
-All of these run immediately, even while Claude is working.
+All of these run immediately, even while Claude is working. They answer you
+alone: typed, from Remote Control, from the SDK host, your own Slack ping, or a
+follow-up to your own action in the UI. Started by another session, a channel,
+a schedule or another mod, every one of them is refused, so nothing else can
+switch off your breakpoints, open the pane under your typing, or read your
+rules and refused calls out. A run Claude Code cannot attribute to anyone
+(`unclassified`) is refused too, with a pointer to the prompt and the pane,
+which always work.
 
 ### Rule language
 
@@ -358,12 +376,13 @@ Everything below lives in [`hooks/register.tsx`](hooks/register.tsx).
 | `tool.call` | Records each tool call. Only when a breakpoint you set matches does it hold the call and ask you: Continue, Step, Reject, or Simulate (opt-in). After Continue, Claude Code's permission check still runs as usual. In `claude -p`, a call matching a pause breakpoint is rejected by default (`headlessPause`). It never approves a call. After the call, it reads the chain's trace to name the mod that refused it, if one did. |
 | `session.append` (tool results only) | **Changes nothing.** It reads the tool results Claude Code stores, to catch a refusal made by a mod seated before DevTools, whose call DevTools' `tool.call` hook never saw. It passes every row on as it is. |
 | `classic.SessionStart` | After `/clear`, reads the session id and working directory for the timeline. It passes the event on unchanged and changes no setting, instruction, hook or tool description. |
-| `command.run` | Answers only its own commands, matched by name: `/devtools`, `/devtools-*`, `/bp`, `/bpl`, `/bpn`, `/bpc`, `/bpe`, `/bpp`. Whether you or other code runs one of them, it answers that command and nothing else; it never sees or changes any other command. |
+| `command.run` | Answers only its own commands, matched by name: `/devtools`, `/devtools-*`, `/bp`, `/bpl`, `/bpn`, `/bpc`, `/bpe`, `/bpp`. It answers that command and nothing else; it never sees or changes any other command. A command that changes the debugger is refused unless you started it. |
 | `session.start`, `ui.render` | Registers the commands, opens the pane, and draws the pane, the transcript gutter and the bar above the prompt. |
 
 **Files it writes.** Only when you run `/devtools-export` or press Export in
 the pane: a trace as `.json` (and `.md` with `--md`), by default
-`.claude-devtools/trace-<time>.json` in the project. It is not meant to edit
+`.claude-devtools/trace-<time>.json` in the project, with the timeline, Error
+Lens, the refused calls and the permission rules it read. It is not meant to edit
 any build, start-up, settings or instructions file, and it refuses to:
 
 - a path must end in `.json` or `.md`, and may not contain `..`;
@@ -376,8 +395,11 @@ checks the paths that call named with `stat`: kind, size and modified time,
 never contents. `classify` or `off` turns this off. For the Permissions tab it
 reads the `permissions` of each settings file through `$.settings.read`
 (allow, ask and deny rules, the default mode, extra directories), when the
-session starts and when you open the tab, press Reload or run
-`/devtools-permissions`. It never writes a setting.
+session starts and when you open the tab, press Reload, run
+`/devtools-permissions` or export. It never writes a setting. When a mod
+seated before DevTools refuses a call, it reads that call's input from the
+conversation (`$.session.messages`) to show what was refused, as a redacted
+summary.
 
 **What it stores.** Breakpoint rules and the debugger mode in the plugin store
 (`persistBreakpoints`). The timeline, the refused calls and the permission
@@ -392,7 +414,7 @@ the dialog.
 
 ```bash
 claude plugin validate .         # manifest, hooks, calls, state contract
-claude plugin test .             # 174 tests: pure engine + real hooks and UI through claude-code/testing
+claude plugin test .             # 195 tests: pure engine + real hooks and UI through claude-code/testing
 npx -p typescript@5 tsc -p .     # type-check (after one load has laid .claude-plugin/types)
 ```
 

@@ -2,20 +2,26 @@
 
 ## Verified
 
-Every line below is covered by `claude plugin test .`. That suite has 174
-tests: 99 on the pure engine, and 75 that load the mod into the engine's own
+Every line below is covered by `claude plugin test .`. That suite has 195
+tests: 104 on the pure engine, and 91 that load the mod into the engine's own
 test host and drive its real hooks.
 
 - A Bash call matching a breakpoint pauses. **Reject** keeps the tool from running, and Claude reads why.
 - **Continue** runs the call exactly once, through the rest of the chain, and returns its result unchanged.
 - Tool, command, file (POSIX and Windows paths), error and conditional breakpoints. Scope, hit thresholds, enable/disable.
+- Two parallel calls each count their own hit, so a `--after 2` rule pauses exactly one of them. An error rule's threshold counts every failure.
+- Every command is refused from every origin but the person's (`composer`, `bridge`, `sdk`, `slack-ping`, `auto-continuation`), with a pointer to the prompt and the pane, and nothing is opened or focused for one.
+- The guard answers with each call's own plan: of two parallel calls whose hooks fail, the one that would have run runs and the one that would have paused is refused. Headless with `record-only`, a call let through stays let through. Once pause-next is used up, a later failing hook is not held for it. A refusal at a pause is kept when the clock fails, and recorded once when the hook fails after it; a failure to clear the pause keeps the Reject and its note. A guard refusal is recorded even if the debugger was turned off before its result arrived.
+- An MCP tool's summary drops `password`- and `token`-like arguments, as its stored input does.
+- A failure after the debugger was turned off mid-call counts no hit. Exports carry the hit counts and the rules as read at export time.
 - Non-matching calls are untouched. **Warn** and **record** actions never pause.
 - Step, pause-next, `/devtools-continue`. Error breakpoints arm the next call.
 - Dismissed dialogs and typed answers reject. Interrupted results are recorded as `aborted`.
 - Simulation: off unless enabled. A simulated failure and a read-only stub never run the tool and are labeled. Stubs are refused for risky commands.
 - Headless: pause breakpoints reject without asking (or record-only), and other calls run.
 - Concurrent calls keep separate records and results.
-- A failing guard refuses only calls a breakpoint would hold.
+- A failing guard refuses only calls a breakpoint would hold, and its refusal is recorded as DevTools' own, confirmed, whatever its words, and once only when the call had already been rejected.
+- A settings file that cannot be read is named, its error redacted. A huge command is cut before redaction without leaving part of a secret.
 - Secrets are absent from exports.
 - The ring buffer bound holds.
 - Persisted rules reload, and invalid stored rules are dropped.
@@ -26,7 +32,7 @@ test host and drive its real hooks.
 - Transcript gutter: Bash rows offer tool and command, Read rows their path relative to the project, folded groups one toggle per tool. A press sets a rule (and the red mark appears), and a second press removes it. `inlineControls` always (the default), hover and off behave as described. The bar always fits one line (checked at every width from 24 to 200 columns), and before the first call its hint stands alone. The `/bp`, `/bpl`, `/bpn`, `/bpc` and `/bpe` aliases answer as their long forms. Nothing draws while the mode is off.
 - The bar above the prompt shows the latest call with `t`/`c`/`f` toggles, opens the pane, hides, and yields to surveys.
 - Error Lens: a successful call leaves no record. Each of these is classified with the right certainty: a failed Read, Write or Edit, a permission denial, a hook refusal, an ambiguous failure, a suspected MCP success, and DevTools' own refusal. In every case the result Claude gets is unchanged and the tool ran once. Read-only checks find a missing parent folder and a write that landed despite its error. Repeats are grouped and announced on the first and every fifth. `errorLens` `off` and `classify` and `errorToasts` off behave as described. Recording off still diagnoses. Secrets are redacted in records and exports. The Errors tab, the ERRORS panel, the timeline's ` why?`, the Inspector's `w` and the bar's `e` all reach it.
-- Permissions: a mod beneath DevTools (an inline plugin in the `append` tier) is named, with its tier, from the call chain, confirmed, in the tab, `/devtools-permissions` and Error Lens. A mod seated before it (the `prepend` tier) is caught from the stored tool result and named as possible. A deny rule is named with the settings file that holds it. Results for calls DevTools saw, validation errors and interruptions add nothing. Mode `off` records nothing. Rules from each settings file are listed with their file and reread on Reload. The tab fits 32 columns and draws on desktop and mobile. `/bpp` answers as `/devtools-permissions`.
+- Permissions: a mod beneath DevTools (an inline plugin in the `append` tier) is named, with its tier, from the call chain, confirmed, in the tab, `/devtools-permissions` and Error Lens. A mod seated before it (the `prepend` tier) is caught from the stored tool result and named as possible, with the command it refused read from the conversation (a stub of `$.session.messages` in the tests). The dashboard's REFUSED panel lists the latest three and opens each. Exports carry the refused calls and the rules. A deny rule is named with the settings file that holds it. Results for calls DevTools saw, validation errors and interruptions add nothing. Mode `off` records nothing. Rules from each settings file are listed with their file and reread on Reload. The tab fits 32 columns and draws on desktop and mobile. `/bpp` answers as `/devtools-permissions`.
 
 **Real-session smoke tests** (`claude -p --plugin-dir`, Claude Code 2.1.294, Windows):
 
@@ -50,7 +56,8 @@ tested. Try it after installing it (see the README).
 - **The dialog is the control for a held call.** No command can release a call another hook holds, so `/devtools-continue` affects only future calls.
 - **Several held calls.** If parallel calls each match a pause rule, each raises its own question. The engine's dialog decides the order. DevTools does not serialize them, because a wait on its own promise would count against the hook's 10-second budget.
 - **Permission answers are inferred.** The `tool.check` verdict (allow/ask/deny and rule) is exact. Whether the person rejected the permission *prompt* is inferred from the error text (`doesn't want to proceed`, …).
-- **Mods before DevTools are named from their words.** A mod seated before DevTools in the chain refuses before DevTools' hook runs, so the engine never names it to DevTools. The refusal is caught from the stored tool result, and the mod is marked possible when its text starts with its name (`blast-radius: …`), unknown otherwise.
+- **Mods before DevTools are named from their words.** A mod seated before DevTools in the chain refuses before DevTools' hook runs, so the engine never names it to DevTools. The refusal is caught from the stored tool result, and the mod is marked possible when its text starts with its name (`blast-radius: …`, `[blast-radius] …`), unknown otherwise. Every installed mod sits in the `user` tier, and a mod cannot set its place there, so another installed mod may well sit before DevTools: in a live run with Blast Radius installed, its refusals were named as possible, never confirmed.
+- **Times are UTC.** The mod's environment has no time zone, so every time it shows is UTC: a list says so once in its header, a time on its own ends in `UTC`.
 - **The live permission mode is not readable.** The Permissions tab shows the default mode from the settings files. A mode changed with Shift+Tab is not shown, though a refusal by the mode is still named from the verdict.
 - **Shell matching is textual.** Command patterns and path words in shell commands do not parse the shell. Quoting, variables and aliases can hide a match.
 - **Globs:** `**`, `*` and `?` are supported. Brace expansion (`{a,b}`) and negation are not.
@@ -58,9 +65,9 @@ tested. Try it after installing it (see the README).
 - **Hit counts** are per session. They are not persisted.
 - **Duration** is the tool's own run time, from release to result. Time spent paused is not included.
 - **Recording overhead.** With recording on, each call costs about a dozen host round trips (state reads and versioned writes, two clock reads). An open pane and the bar redraw on each call. Transcript rows read only the rules and redraw only when a rule changes, because hit counts live in their own state key. Mode `off` costs one state read per call.
-- **Fail-closed needs one read.** The `.catch` handler judges from the last settings the module read. If the guard fails before the module has read its settings even once (its very first call after a load), the handler has no rules to apply and lets the call through.
+- **Fail-closed needs one read.** The `.catch` handler judges from the call's own plan, or before planning from the last settings the module read; `session.start` reads them. If the guard fails before even that read (a load whose `session.start` failed), the handler has no rules to apply and lets the call through.
 - **Re-entry.** A tool call raised beneath DevTools' own pause (another mod acting inside the dialog) is judged from a settings snapshot and refused if a breakpoint would hold it.
-- **Reload while paused.** A hot reload discards the old module. The paused event is closed as `aborted`, and what happens to the held call is the engine's business.
+- **Reload while paused.** A hot reload discards the old module. The paused event is closed as `aborted`, and what happens to the held call is the engine's business. A call in flight across a reload is recognised as seen from its timeline event; with recording off and no breakpoint matching it, there is none, and a refusal of it is read as one made before DevTools.
 - **The gutter needs a pointer to press.** Clicks (and, in `hover` mode, hover) on transcript rows reach the mod only where the surface reports them (the fullscreen terminal, Claude Desktop). On the main-screen terminal, use the bar above the prompt (ctrl+x tab, then `t`/`c`/`f`), the Inspector or `/devtools-break`. In `hover` mode the controls lay over the row's top-right corner while hovered, and can cover the end of a long first line.
 - **The gutter suggests, it does not edit.** It sets a pause rule on the tool, the program and subcommand (`npm test`), or the exact path. For a wider or narrower rule, use the rule language.
 - **Surfaces.** The pane draws in the terminal and Claude Desktop. In VS Code's chat panel, `claude -p` and the SDK, the hooks run and nothing draws, so use the commands. Mobile has no input fields.

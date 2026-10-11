@@ -25,6 +25,16 @@ describe('redaction', () => {
     expect(out).toContain('https://admin:[REDACTED]@db.example.com/x')
   })
 
+  test('more key shapes: Stripe, Slack refresh tokens, Twilio API keys', () => {
+    const join = (...parts: string[]): string => parts.join('')
+    for (const key of [join('sk_', 'live_', '4eC39HqLyjWDarjtT1zdp7dc'), join('rk_', 'test_', '51Habcdefghijklmnop'), join('pk_', 'live_', 'ABCDEFGHIJKLMNOP1234')]) {
+      expect(redactString(`key ${key} end`)).toBe(`key ${REDACTED} end`)
+    }
+    expect(redactString('sk_live_short')).toBe('sk_live_short')
+    expect(redactString(join('slack xoxe', '.xoxp-1-AbCdEfGhIjKlMnOp'))).toBe(`slack ${REDACTED}`)
+    expect(redactString(join('twilio SK', '0123456789abcdef0123456789abcdef'))).toBe(`twilio ${REDACTED}`)
+  })
+
   test('environment assignments and secret flags in commands', () => {
     expect(redactString('API_TOKEN=abc123 npm publish')).toBe(`API_TOKEN=${REDACTED} npm publish`)
     expect(redactString('export DATABASE_URL="postgres://u:p@h/db" && run')).toBe(`export DATABASE_URL=${REDACTED} && run`)
@@ -67,6 +77,33 @@ describe('what the timeline keeps', () => {
     expect(summary).toBe('stdout 2 lines, stderr 0 lines')
     expect(summarizeResult('Read', { result: { type: 'text' }, text: 'secret file\ncontents' }, OPTIONS)).toBe('2 lines, 20 chars')
     expect(summarizeResult('Bash', { isError: true, result: 'x', text: 'failed: TOKEN=abc' }, OPTIONS)).toBe(`error: failed: TOKEN=${REDACTED}`)
+  })
+
+  test('a huge command is cut before redaction, dropping the word the cut splits', () => {
+    const join = (...parts: string[]): string => parts.join('')
+    const key = join('sk-', 'ant-api03-ABCDEFGHIJKLMNOPQRSTUV')
+    const call = normalizeCall({ tool: 'Bash', tool_use_id: 'b', command: `echo ${key} ${'x'.repeat(65_480)} ${key}` })
+    const shown = summarizeInput(call, { ...OPTIONS, maxChars: 200_000 })
+    expect(shown.startsWith(`echo ${REDACTED} x`)).toBe(true)
+    expect(shown).not.toContain('sk-')
+    expect(shown.length).toBeLessThan(65_536)
+  })
+
+  test('long runs of spaces and blank lines summarize in linear time', () => {
+    const started = Date.now()
+    for (const command of [`echo a${' '.repeat(70_000)}b`, `cat <<EOF${'\n'.repeat(30_000)}x${' '.repeat(40_000)}\nEOF`]) {
+      summarizeInput(normalizeCall({ tool: 'Bash', tool_use_id: 'b', command }), OPTIONS)
+    }
+    expect(Date.now() - started).toBeLessThan(500)
+    expect(summarizeInput(normalizeCall({ tool: 'Bash', tool_use_id: 'b', command: 'a\n\n  \nb  ' }), OPTIONS)).toBe('a ⏎ b')
+  })
+
+  test('a tool with no summary of its own is redacted by key, as its stored input is', () => {
+    const call = normalizeCall({ tool: 'mcp__db__connect', tool_use_id: 'm', host: 'db', password: 'hunter2', api_key: 'plainvalue123' })
+    const shown = summarizeInput(call, OPTIONS)
+    expect(shown).toContain('"host":"db"')
+    expect(shown).not.toContain('hunter2')
+    expect(shown).not.toContain('plainvalue123')
   })
 
   test('long values are truncated to the summary length', () => {

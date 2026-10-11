@@ -28,9 +28,24 @@ it makes.
   `permissions` of each settings file (`$.settings.read`): rules, default
   mode, extra directories. Rules are redacted like everything else it keeps.
 - **It only reads tool results.** Its `session.append` hook, matched to tool
-  results alone, passes every row on as it is. It keeps only the refusal text
-  of a call refused before DevTools saw it, redacted and cut to 600
-  characters.
+  results alone, passes every row on as it is. It keeps the refusal text of a
+  call refused before DevTools saw it, redacted and cut to 600 characters, and
+  reads that one call's input from the conversation (`$.session.messages`),
+  kept as the same redacted summary the timeline keeps.
+- **It answers only you.** Every command is refused unless you started it:
+  typed, from Remote Control, from the SDK host, your own Slack ping or a
+  follow-up to your own action in the UI. A run Claude Code cannot attribute
+  (`unclassified`) is refused too; the prompt and the pane always work.
+  Another session, a Slack or Telegram channel, a schedule or another mod
+  cannot switch off the breakpoints you set, open the pane under your typing,
+  or read your rules and refused calls out.
+- **Summaries are redacted by key too.** A tool with no summary of its own
+  (an MCP tool) is summarized from its arguments with `password`, `token`,
+  `api_key` and the like dropped, as its stored input is.
+- **Errors are redacted before they are cut.** A settings file that cannot be
+  read is named with its error, redacted first: a parse error can quote the
+  file; it is cut at 4 KB before, and 200 characters after. A long command or
+  error is cut at 64 KB before redaction, dropping the word the cut splits.
 
 **The mod is not a sandbox.** It is a debugger. Tool-name and path
 matching are best effort. Shell commands are matched as text without full
