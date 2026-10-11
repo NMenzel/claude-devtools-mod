@@ -121,7 +121,7 @@ function timeline(els: Table, m: PaneModel, act: PaneActions, width: number): Re
         <Button key="newer" hotkey="k" plain dimColor={page === 0} label="Newer" onPress={() => act.page(-1)} />
         <Button key="older" hotkey="j" plain dimColor={page >= pages - 1} label="Older" onPress={() => act.page(1)} />
         <Button key="clear" hotkey="x" plain dimColor label="Clear" onPress={() => act.clearTimeline()} />
-        <Text dimColor>{`page ${page + 1}/${pages} · ${m.trace.length} events · ● matched a breakpoint`}</Text>
+        <Text dimColor>{`page ${page + 1}/${pages} · ${m.trace.length} events · times in UTC · ● matched a breakpoint`}</Text>
       </Box>
     </Box>
   )

@@ -78,8 +78,58 @@ describe('exports', () => {
     expect(parsed.events).toHaveLength(3)
   })
 
+  test('refused calls and the permission rules round-trip, and the report lists them', () => {
+    const withDenials = buildExport({
+      version: '0.2.1',
+      exportedAt: '2026-10-08T12:00:00.000Z',
+      sessionId: 's',
+      redaction: true,
+      rawCapture: false,
+      mode: 'active',
+      stats: STATS,
+      breakpoints: [],
+      events: [],
+      denials: [
+        {
+          id: 'tu-1',
+          tool: 'Bash',
+          atMs: Date.UTC(2026, 9, 8, 12, 0, 0),
+          inputSummary: 'rm -rf build',
+          outcome: 'blocked-by-hook',
+          refusal: { by: 'mod', plugin: 'blast-radius', reason: 'blast-radius: no', certainty: 'possible', evidence: "refused before Claude DevTools' hook ran" },
+        },
+      ],
+      permissions: { readAtMs: 1, rules: [{ behavior: 'deny', rule: 'Bash(rm -rf:*)', source: 'project' }], directories: [], errors: [] },
+    })
+    const parsed = JSON.parse(serializeExport(withDenials))
+    expect(validateExport(parsed)).toEqual([])
+    expect(parsed.schemaVersion).toBe(3)
+    expect(parsed.denials[0]).toMatchObject({ id: 'tu-1', inputSummary: 'rm -rf build', refusal: { plugin: 'blast-radius' } })
+    expect(parsed.permissions.rules[0]).toMatchObject({ rule: 'Bash(rm -rf:*)' })
+    const md = exportToMarkdown(parsed)
+    expect(md).toContain('## Permissions')
+    expect(md).toContain('newest first, times in UTC:')
+    expect(md).toContain('12:00:00 Bash rm -rf build')
+    expect(md).toContain('refused by probably mod blast-radius (possible)')
+    expect(md).toContain('Bash(rm -rf:*)')
+    expect(validateExport({ ...parsed, denials: [{ id: 'x' }] })[0]).toMatch(/denials\[0\]/)
+    const broken = 'permissions must be an object with readAtMs, an optional defaultMode, and rules, directories and errors arrays'
+    expect(validateExport({ ...parsed, permissions: undefined })).toContain(broken)
+    // What the report reads must be there: an export that validates always renders.
+    expect(validateExport({ ...parsed, permissions: { rules: [] } })).toContain(broken)
+    expect(validateExport({ ...parsed, denials: [null] })[0]).toMatch(/denials\[0\]/)
+    const farFuture = { ...parsed, denials: [{ ...parsed.denials[0], atMs: 1e300 }] }
+    expect(validateExport(farFuture)[0]).toMatch(/valid atMs/)
+    expect(validateExport({ ...parsed, permissions: { ...parsed.permissions, rules: [null] } })).toContain(broken)
+    expect(validateExport({ ...parsed, permissions: { ...parsed.permissions, defaultMode: null } })).toContain(broken)
+    // Null items are reported, never thrown on.
+    expect(validateExport({ ...parsed, events: [null], errors: [null] })).toEqual(expect.arrayContaining(['events[0].id must be a non-empty string', 'errors[0].id must be a non-empty string']))
+    // Rules never read say so, instead of reading as none.
+    expect(exportToMarkdown({ ...parsed, permissions: { readAtMs: 0, rules: [], directories: [], errors: [] } })).toContain('Rules: not read this session.')
+  })
+
   test('the validator catches broken exports', () => {
-    expect(validateExport({ ...built, schemaVersion: 1 })).toContain('schemaVersion must be 2')
+    expect(validateExport({ ...built, schemaVersion: 2 })).toContain('schemaVersion must be 3')
     expect(validateExport({ ...built, errors: undefined })).toContain('errors must be an array')
     expect(validateExport({ ...built, errors: [{ id: 'x', tool: 'Bash', category: 'unknown', message: '', probes: [], causes: [{ certainty: 'likely' }] }] })[0]).toMatch(/known certainty/)
     expect(validateExport({ ...built, events: [{ ...event(1), simulated: true }] })[0]).toMatch(/simulated but its status/)

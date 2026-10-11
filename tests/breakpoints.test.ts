@@ -2,6 +2,7 @@ import { describe, expect, test } from 'claude-code/testing'
 
 import type { Breakpoint } from '../types'
 import {
+  countHits,
   compileCommandPattern,
   compileGuardedRegex,
   describeBreakpoint,
@@ -156,16 +157,17 @@ describe('conditional, scope, threshold, error rules', () => {
     expect(evaluateCall([main, sub], bash('ls', 'agent-7')).hits.map(bp => bp.id)).toEqual(['bp2'])
   })
 
-  test('a hit threshold acts from the Nth hit; counts advance on every hit', () => {
+  test('a hit threshold acts from the Nth hit on; each call is counted before it is evaluated', () => {
     let bps = [rule('tool Bash --after 3')]
     const effective: number[] = []
     for (let i = 0; i < 4; i += 1) {
-      const evaluation = evaluateCall(bps, bash('ls'))
-      bps = evaluation.breakpoints
-      effective.push(evaluation.effective.length)
+      bps = countHits(bps, evaluateCall(bps, bash('ls')).hits.map(bp => bp.id))
+      effective.push(evaluateCall(bps, bash('ls')).effective.length)
     }
     expect(effective).toEqual([0, 0, 1, 1])
     expect(bps[0]?.hitCount).toBe(4)
+    // Evaluating counts nothing.
+    expect(evaluateCall(bps, bash('ls')).hits[0]?.hitCount).toBe(4)
   })
 
   test('disabled rules never hit; error rules wait for failures', () => {

@@ -16,7 +16,7 @@ import type {
   TraceOutcome,
   TraceStatus,
 } from '../../types'
-import { SHELL_TOOLS, truncate } from './events.ts'
+import { clockUtc, SHELL_TOOLS, truncate } from './events.ts'
 
 export const MAX_MESSAGE = 3000
 export const MAX_LENS = 80
@@ -511,10 +511,6 @@ export function probePlan(tool: string, category: ErrorCategory, args: Readonly<
   return out.slice(0, 5)
 }
 
-function clock(ms: number): string {
-  return new Date(ms).toISOString().slice(11, 19)
-}
-
 function size(bytes: number): string {
   return bytes < 1024 ? `${bytes} B` : bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
@@ -525,7 +521,7 @@ export function describeProbe(probe: LensProbe): string {
   if (!probe.exists) return `${probe.role} ${probe.path}: does not exist`
   const parts = [probe.kind === 'dir' ? 'directory' : probe.kind ?? 'exists']
   if (probe.kind === 'file' && probe.size !== undefined) parts.push(size(probe.size))
-  if (probe.mtimeMs !== undefined) parts.push(`modified ${clock(probe.mtimeMs)}`)
+  if (probe.mtimeMs !== undefined) parts.push(`modified ${clockUtc(probe.mtimeMs)}`)
   if (probe.isLink === true) parts.push(`link → ${probe.realPath ?? '?'}`)
   return `${probe.role} ${probe.path}: ${parts.join(' · ')}`
 }
@@ -561,15 +557,15 @@ export function interpretProbes(
       } else if (probe.kind === 'file' && probe.mtimeMs !== undefined) {
         const changedDuring = probe.mtimeMs >= record.startedAtMs - MTIME_GRACE_MS
         if (isWrite && changedDuring) {
-          causes.push(cause('confirmed', `${probe.path} exists and was modified at ${clock(probe.mtimeMs)}, during or right after this call.`, [fact]))
+          causes.push(cause('confirmed', `${probe.path} exists and was modified at ${clockUtc(probe.mtimeMs)}, during or right after this call.`, [fact]))
           if (record.contentBytes !== undefined && probe.size === record.contentBytes) {
             causes.push(cause('possible', `The write may have landed despite the reported error: the file's size (${probe.size} bytes) equals what Claude meant to write.`, [fact]))
             fixes.push('Read the file to check its content before retrying the write.')
           }
         } else if (isWrite) {
-          causes.push(cause('confirmed', `${probe.path} exists but was last modified at ${clock(probe.mtimeMs)}, before this call: the call did not change it.`, [fact]))
+          causes.push(cause('confirmed', `${probe.path} exists but was last modified at ${clockUtc(probe.mtimeMs)}, before this call: the call did not change it.`, [fact]))
         } else if (record.category === 'stale-read') {
-          causes.push(cause('confirmed', `${probe.path} was last modified at ${clock(probe.mtimeMs)}${changedDuring ? ', during or after this call' : ''}.`, [fact]))
+          causes.push(cause('confirmed', `${probe.path} was last modified at ${clockUtc(probe.mtimeMs)}${changedDuring ? ', during or after this call' : ''}.`, [fact]))
         }
       }
       if (probe.isLink === true) causes.push(cause('possible', `${probe.path} is a symbolic link to ${probe.realPath ?? 'an unresolved target'}; the tool may have followed it somewhere unexpected.`, [fact]))

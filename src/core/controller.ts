@@ -3,8 +3,9 @@
 // classified. The native layer executes these decisions; it decides nothing.
 
 import type { ArmState, Breakpoint, DevtoolsSettings, PauseDecision, PermissionInfo, RiskLevel, TraceOutcome, TraceStatus } from '../../types'
-import { evaluateCall, evaluateError } from './breakpoints.ts'
-import type { NormalizedCall, ResultLike } from './events.ts'
+import { countHits, evaluateCall, evaluateError } from './breakpoints.ts'
+import { asRecord, type NormalizedCall, type ResultLike } from './events.ts'
+import { withHits } from './suggest.ts'
 
 export const DISARMED: ArmState = { pauseNext: false, step: false }
 
@@ -17,48 +18,65 @@ export type CallPlan =
   | { kind: 'warn'; hits: Breakpoint[]; warned: Breakpoint[] }
   | { kind: 'pause'; hits: Breakpoint[]; at?: Breakpoint; reason: string }
 
-export type Planned = { plan: CallPlan; settings: DevtoolsSettings; arm: ArmState }
+export type Planned = { plan: CallPlan; arm: ArmState }
+
+declare const COUNTED: unique symbol
+
+/**
+ * Rules whose hit counts include the call being planned: the only rules
+ * planning takes, so a call is never planned uncounted. Made by `counted`
+ * (counts the native layer wrote) or `countCall` (a snapshot, counted here).
+ */
+export type Counted = DevtoolsSettings & { readonly [COUNTED]: true }
+
+/** The rules with the counts an atomic count of this call returned; with none, nothing the call matches to count. */
+export function counted(settings: DevtoolsSettings, counts?: Readonly<Record<string, number>>): Counted {
+  return (counts === undefined ? settings : withHits(settings, counts)) as Counted
+}
+
+/** A snapshot that predates the call, with the call counted: one more hit on each rule it matches. */
+export function countCall(settings: DevtoolsSettings, call: NormalizedCall, cwd?: string): Counted {
+  const ids = evaluateCall(settings.breakpoints, call, cwd).hits.map(bp => bp.id)
+  return { ...settings, breakpoints: countHits(settings.breakpoints, ids) } as Counted
+}
 
 /**
  * Decides what happens to a call before it runs. `active` pauses on pause
  * rules and on an armed step; `observe` downgrades every pause to a record
  * and leaves the arm alone; `off` passes everything untouched.
  */
-export function planCall(settings: DevtoolsSettings, arm: ArmState, call: NormalizedCall, cwd?: string): Planned {
-  if (settings.mode === 'off') return { plan: { kind: 'pass' }, settings, arm }
+export function planCall(settings: Counted, arm: ArmState, call: NormalizedCall, cwd?: string): Planned {
+  if (settings.mode === 'off') return { plan: { kind: 'pass' }, arm }
   const evaluation = evaluateCall(settings.breakpoints, call, cwd)
-  const next = evaluation.hits.length > 0 ? { ...settings, breakpoints: evaluation.breakpoints } : settings
   const hits = evaluation.hits
   if (settings.mode === 'active') {
     const at = evaluation.effective.find(bp => bp.action === 'pause')
     // A pause at a breakpoint also satisfies an armed step; an unarmed arm keeps its identity (no write).
-    if (at !== undefined) return { plan: { kind: 'pause', hits, at, reason: `breakpoint "${at.name}"` }, settings: next, arm: arm.pauseNext || arm.step ? DISARMED : arm }
+    if (at !== undefined) return { plan: { kind: 'pause', hits, at, reason: `breakpoint "${at.name}"` }, arm: arm.pauseNext || arm.step ? DISARMED : arm }
     if ((arm.pauseNext || arm.step) && !NOT_STEPPABLE.includes(call.tool)) {
       const reason = arm.step ? 'step' : arm.reason !== undefined ? `pause-next (${arm.reason})` : 'pause-next'
-      return { plan: { kind: 'pause', hits, reason }, settings: next, arm: DISARMED }
+      return { plan: { kind: 'pause', hits, reason }, arm: DISARMED }
     }
   }
   const warned = evaluation.effective.filter(bp => bp.action === 'warn')
-  if (warned.length > 0) return { plan: { kind: 'warn', hits, warned }, settings: next, arm }
-  if (hits.length > 0) return { plan: { kind: 'record', hits }, settings: next, arm }
-  return { plan: { kind: 'pass' }, settings: next, arm }
+  if (warned.length > 0) return { plan: { kind: 'warn', hits, warned }, arm }
+  if (hits.length > 0) return { plan: { kind: 'record', hits }, arm }
+  return { plan: { kind: 'pass' }, arm }
 }
 
-export type ErrorPlan = { settings: DevtoolsSettings; arm: ArmState; triggered: Breakpoint[] }
+export type ErrorPlan = { arm: ArmState; triggered: Breakpoint[] }
 
 /**
  * After a failed call: error rules surface the failure, and an error rule
  * whose action is pause arms a pause on the next eligible call (a call that
  * already ran is never paused after the fact).
  */
-export function planAfterError(settings: DevtoolsSettings, arm: ArmState, call: NormalizedCall, cwd?: string): ErrorPlan {
-  if (settings.mode === 'off') return { settings, arm, triggered: [] }
+export function planAfterError(settings: Counted, arm: ArmState, call: NormalizedCall, cwd?: string): ErrorPlan {
+  if (settings.mode === 'off') return { arm, triggered: [] }
   const evaluation = evaluateError(settings.breakpoints, call, cwd)
-  if (evaluation.hits.length === 0) return { settings, arm, triggered: [] }
-  const next = { ...settings, breakpoints: evaluation.breakpoints }
+  if (evaluation.hits.length === 0) return { arm, triggered: [] }
   const pauses = settings.mode === 'active' && evaluation.effective.some(bp => bp.action === 'pause')
   return {
-    settings: next,
     arm: pauses ? { pauseNext: true, step: false, reason: `after ${call.tool} failed` } : arm,
     triggered: evaluation.effective,
   }
@@ -137,12 +155,12 @@ export function classifyResult(result: ResultLike, permission?: PermissionInfo, 
   }
   if (result.isError === true) {
     const text = typeof result.text === 'string' ? result.text : String(result.result ?? '')
-    const record = result.result !== null && typeof result.result === 'object' ? (result.result as Record<string, unknown>) : {}
+    const record = asRecord(result.result)
     if (record.interrupted === true || INTERRUPTED.test(text)) return { status: 'failed', outcome: 'aborted' }
     if (permission?.decision === 'deny' || PERMISSION_REJECTED.test(text)) return { status: 'denied', outcome: 'permission-denied' }
     return { status: 'failed', outcome: 'tool-error' }
   }
-  const record = result.result !== null && typeof result.result === 'object' ? (result.result as Record<string, unknown>) : {}
+  const record = asRecord(result.result)
   if (record.interrupted === true) return { status: 'failed', outcome: 'aborted' }
   return { status: 'completed', outcome: 'ok' }
 }
@@ -154,6 +172,6 @@ export function classifyResult(result: ResultLike, permission?: PermissionInfo, 
  */
 export function wouldPause(settings: DevtoolsSettings | undefined, arm: ArmState | undefined, call: NormalizedCall, cwd?: string): boolean {
   if (settings === undefined || settings.mode !== 'active') return false
-  const planned = planCall(settings, arm ?? DISARMED, call, cwd)
-  return planned.plan.kind === 'pause'
+  // The snapshot's counts predate this call: count it, as the hook would have.
+  return planCall(countCall(settings, call, cwd), arm ?? DISARMED, call, cwd).plan.kind === 'pause'
 }

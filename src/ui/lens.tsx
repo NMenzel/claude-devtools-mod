@@ -5,7 +5,7 @@
 import type { RenderElement } from 'claude-code'
 
 import type { Certainty, LensRecord } from '../../types'
-import { truncate } from '../core/events.ts'
+import { clockUtc, truncate } from '../core/events.ts'
 import { describeProbe } from '../core/lens.ts'
 import { formatDuration } from '../core/recorder.ts'
 import type { PaneActions, PaneModel, Table } from './model.ts'
@@ -19,10 +19,6 @@ export const CERTAINTY_STYLE: Record<Certainty, { label: string; color: string }
 
 const MESSAGE_LINES = 8
 
-function clock(ms: number): string {
-  return new Date(ms).toISOString().slice(11, 19)
-}
-
 /** The record the tab shows: the one asked for, else the latest. */
 export function selectedLens(m: Pick<PaneModel, 'lens' | 'view'>): LensRecord | undefined {
   return m.lens.find(record => record.id === m.view.lensId) ?? m.lens.at(-1)
@@ -31,7 +27,7 @@ export function selectedLens(m: Pick<PaneModel, 'lens' | 'view'>): LensRecord | 
 export function lensTitle(record: LensRecord): string {
   const code = record.code !== undefined ? ` (${record.code})` : record.exitCode !== undefined ? ` (exit ${record.exitCode})` : ''
   const verb = record.suspected === true ? 'may have failed' : record.status === 'denied' ? 'denied' : 'failed'
-  return `✗ ${record.tool} ${verb} · ${record.category}${code} · ${clock(record.endedAtMs)} · ${formatDuration(record.durationMs)}`
+  return `✗ ${record.tool} ${verb} · ${record.category}${code} · ${clockUtc(record.endedAtMs)} · ${formatDuration(record.durationMs)}`
 }
 
 export function errorsView(els: Table, m: PaneModel, act: PaneActions, width: number): RenderElement {

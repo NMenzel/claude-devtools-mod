@@ -211,24 +211,22 @@ export function criteriaMatch(bp: Breakpoint, call: NormalizedCall, cwd?: string
 }
 
 export type Evaluation = {
-  /** The rules with hit counts advanced. */
-  breakpoints: Breakpoint[]
-  /** Rules that matched, as advanced. */
+  /** Rules that matched. */
   hits: Breakpoint[]
   /** Hits whose threshold is reached: their action applies. */
   effective: Breakpoint[]
 }
 
+/** The hit counts must already include this call: the caller counts it first (countHits). */
 function evaluate(breakpoints: readonly Breakpoint[], isCandidate: (bp: Breakpoint) => boolean): Evaluation {
-  const hits: Breakpoint[] = []
-  const next = breakpoints.map(bp => {
-    if (!isCandidate(bp)) return bp
-    const hit = { ...bp, hitCount: bp.hitCount + 1 }
-    hits.push(hit)
-    return hit
-  })
+  const hits = breakpoints.filter(isCandidate)
   const effective = hits.filter(bp => bp.hitThreshold === undefined || bp.hitCount >= bp.hitThreshold)
-  return { breakpoints: next, hits, effective }
+  return { hits, effective }
+}
+
+/** The rules with one more hit on each of `ids`: a call counted. */
+export function countHits(breakpoints: readonly Breakpoint[], ids: readonly string[]): Breakpoint[] {
+  return breakpoints.map(bp => (ids.includes(bp.id) ? { ...bp, hitCount: bp.hitCount + 1 } : bp))
 }
 
 /** Before a call runs: every enabled rule other than error rules. */

@@ -167,12 +167,32 @@ export function classifyRisk(tool: string, command?: string): RiskLevel {
   }
 }
 
+/** An object's fields, or none for anything else (null, a string, a number). */
+export function asRecord(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === 'object' ? (value as Record<string, unknown>) : {}
+}
+
 export function truncate(text: string, max: number): string {
   return text.length <= max ? text : `${text.slice(0, Math.max(0, max - 1))}…`
 }
 
-function oneLine(text: string): string {
-  return text.replace(/\s*\n\s*/g, ' ⏎ ').trim()
+/** A time of day in UTC (the mod's environment has no time zone), for rows under a header that says UTC. */
+export function clock(ms: number): string {
+  return new Date(ms).toISOString().slice(11, 19)
+}
+
+/** A time of day that stands alone, its zone named. */
+export function clockUtc(ms: number): string {
+  return `${clock(ms)} UTC`
+}
+
+/** The lines joined with ⏎, each trimmed, blank ones dropped. Linear: a regex over long whitespace runs backtracks. */
+export function oneLine(text: string): string {
+  return text
+    .split('\n')
+    .map(line => line.trim())
+    .filter(line => line !== '')
+    .join(' ⏎ ')
 }
 
 function clean(text: string, options: SummaryOptions): string {
@@ -250,10 +270,26 @@ export function summarizeInput(call: NormalizedCall, options: SummaryOptions): s
         text = `${str('subagent_type') || 'agent'}: ${str('description')}`
         break
       default:
-        text = JSON.stringify(sanitizeInput(call, { ...options, redaction: false })) ?? ''
+        // Redacted by key too: a `password` or `token` argument has no secret shape to match.
+        text = JSON.stringify(sanitizeInput(call, options)) ?? ''
     }
   }
-  return truncate(oneLine(clean(text, options)), options.maxChars)
+  return truncate(oneLine(clean(capped(text), options)), options.maxChars)
+}
+
+/** How much of a summary's text is redacted: far past what any summary shows. */
+const REDACT_CAP = 65_536
+
+/**
+ * Cuts a huge text (a heredoc, a quoted file) before it is redacted, so it is
+ * not scanned whole. The word the cut splits is dropped: a secret cut short
+ * could slip past the patterns. A text that is one long word is cut as is.
+ */
+export function capped(text: string, max = REDACT_CAP): string {
+  if (text.length <= max) return text
+  const cut = text.slice(0, max)
+  const end = Math.max(cut.lastIndexOf(' '), cut.lastIndexOf('\n'), cut.lastIndexOf('\t'), cut.lastIndexOf('\r'))
+  return end < 0 ? cut : cut.slice(0, end)
 }
 
 /** A loose view of `next(e)`'s answer: the ToolCallResult arms, read without trusting shapes. */
@@ -271,12 +307,12 @@ function lineCount(text: string): number {
 
 /** One line describing what came back, with no file contents. */
 export function summarizeResult(tool: string, result: ResultLike, options: SummaryOptions): string {
-  if (typeof result.deny === 'string') return truncate(oneLine(`denied: ${clean(result.deny, options)}`), options.maxChars)
+  if (typeof result.deny === 'string') return truncate(oneLine(`denied: ${clean(capped(result.deny), options)}`), options.maxChars)
   if (result.isError === true) {
     const text = typeof result.text === 'string' ? result.text : String(result.result ?? '')
-    return truncate(oneLine(`error: ${clean(text, options)}`), options.maxChars)
+    return truncate(oneLine(`error: ${clean(capped(text), options)}`), options.maxChars)
   }
-  const record = result.result !== null && typeof result.result === 'object' ? (result.result as Record<string, unknown>) : {}
+  const record = asRecord(result.result)
   const parts: string[] = []
   if (SHELL_TOOLS.includes(tool) && typeof record.stdout === 'string') {
     parts.push(`stdout ${lineCount(record.stdout)} lines`, `stderr ${lineCount(String(record.stderr ?? ''))} lines`)

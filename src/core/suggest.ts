@@ -4,7 +4,7 @@
 
 import type { Breakpoint, BreakpointKind, BreakpointMatch } from '../../types'
 import { normalizePath } from './breakpoints.ts'
-import { SHELL_TOOLS } from './events.ts'
+import { asRecord, SHELL_TOOLS } from './events.ts'
 
 export type Category = { id: string; label: string; tools: readonly string[] }
 
@@ -67,7 +67,7 @@ function shorten(text: string, max = 32): string {
 
 /** The breakpoints one tool call suggests: its tool, its command (shell), its path. */
 export function suggestBreakpoints(tool: string, input: unknown, cwd?: string): Suggestion[] {
-  const args = input !== null && typeof input === 'object' ? (input as Record<string, unknown>) : {}
+  const args = asRecord(input)
   const out: Suggestion[] = [{ id: 'tool', label: tool, kind: 'tool', match: { tools: [tool] }, name: `${tool} calls` }]
   if (SHELL_TOOLS.includes(tool) && typeof args.command === 'string') {
     const head = commandHead(args.command)

@@ -189,6 +189,30 @@ describe('the DevTools dashboard', () => {
     expect(drawn).toBe('PAUSED | ⏸ Bash  git push --force')
   })
 
+  test('refused calls show in a REFUSED panel; a row opens its detail', async ($, on) => {
+    world(on)
+    tools(on)
+    dialog(on, ['Reject', 'Reject', 'Reject', 'Reject'])
+    await start($)
+    await run($, 'devtools-break', 'tool Bash')
+    for (const n of [1, 2, 3, 4]) await $.tool.call({ tool: 'Bash', command: `rm -rf dir${n}`, tool_use_id: `tu-${n}` })
+    for (const target of [PANE, WIDE]) {
+      const ui = await $.ui.mount({ ...target, surface: 'terminal' })
+      await ui.press({ key: 'tab-dashboard' })
+      expect(await ui.find({ type: 'Text', text: 'REFUSED' })).toBeDefined()
+      const rows = (await ui.findAll({ type: 'Button' })).filter(b => b.key?.startsWith('refused-'))
+      expect(rows.map(row => row.key)).toEqual(['refused-tu-4', 'refused-tu-3', 'refused-tu-2'])
+      expect(rows[0]?.text).toContain('Bash rm -rf dir4')
+      // Stacked, the timeline gives up the rows ERRORS and REFUSED take.
+      if (target === PANE) expect((await ui.findAll({ type: 'Button' })).filter(b => b.key?.startsWith('ev-')).length).toBeLessThanOrEqual(3)
+      await ui.press({ key: 'refused-tu-4' })
+      // Its Error Lens record opens.
+      expect(await ui.find({ type: 'Text', text: '✗ Bash denied · debugger · 12:00:00 UTC · 0ms' })).toBeDefined()
+      expect(await ui.find({ type: 'Text', text: /^#4 tu-4/ })).toBeDefined()
+      await ui.unmount()
+    }
+  })
+
   test('inline placement draws the mini summary; narrow rows truncate', async ($, on) => {
     world(on)
     tools(on)
@@ -469,7 +493,7 @@ describe('commands as the text interface', () => {
     await start($)
     await $.tool.call({ tool: 'Bash', command: 'ls' })
     const out = await run($, 'devtools-export', 'out/trace.json --md')
-    expect(out).toContain('Exported 1 events and 0 Error Lens records (secrets redacted)')
+    expect(out).toContain('Exported 1 events, 0 Error Lens records and 0 refused calls (secrets redacted)')
     const paths = [...w.writes.keys()]
     expect(paths.some(path => /out[\\/]trace\.json$/.test(path))).toBe(true)
     expect(paths.some(path => /out[\\/]trace\.md$/.test(path))).toBe(true)

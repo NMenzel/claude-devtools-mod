@@ -4,6 +4,8 @@ import type { DevtoolsSettings } from '../types'
 import { parseBreakpointSpec } from '../src/core/breakpoints.ts'
 import {
   classifyResult,
+  type Counted,
+  counted,
   DISARMED,
   interpretAnswer,
   LABELS,
@@ -16,8 +18,9 @@ import {
 import { classifyRisk, normalizeCall } from '../src/core/events.ts'
 import { checkSimulation, SIMULATED_FAILURE_TAG, SIMULATED_OUTPUT_TAG, synthesize } from '../src/core/simulation.ts'
 
-function settings(mode: DevtoolsSettings['mode'], ...specs: string[]): DevtoolsSettings {
-  return {
+/** Rules for planning: none of these tests sets a threshold, so a count of 0 is this call counted. */
+function settings(mode: DevtoolsSettings['mode'], ...specs: string[]): Counted {
+  return counted({
     mode,
     recording: true,
     breakpoints: specs.map((spec, i) => {
@@ -25,24 +28,22 @@ function settings(mode: DevtoolsSettings['mode'], ...specs: string[]): DevtoolsS
       if (!parsed.ok) throw new Error(parsed.error)
       return parsed.breakpoint
     }),
-  }
+  })
 }
 
 const bash = (command: string) => normalizeCall({ tool: 'Bash', tool_use_id: 'b', command })
 const ask = normalizeCall({ tool: 'AskUserQuestion', tool_use_id: 'q', questions: [] })
 
 describe('planning a call', () => {
-  test('active mode pauses on a matching pause rule and counts the hit', () => {
+  test('active mode pauses on a matching pause rule', () => {
     const planned = planCall(settings('active', 'command npm install'), DISARMED, bash('npm install x'))
     expect(planned.plan.kind).toBe('pause')
-    expect(planned.settings.breakpoints[0]?.hitCount).toBe(1)
   })
 
   test('a non-matching rule leaves the call alone', () => {
     const before = settings('active', 'command npm install')
     const planned = planCall(before, DISARMED, bash('npm test'))
     expect(planned.plan.kind).toBe('pass')
-    expect(planned.settings).toBe(before)
   })
 
   test('observe mode records what would pause and never pauses', () => {
@@ -55,7 +56,6 @@ describe('planning a call', () => {
     const before = settings('off', 'tool Bash')
     const planned = planCall(before, { pauseNext: true, step: false }, bash('ls'))
     expect(planned.plan).toEqual({ kind: 'pass' })
-    expect(planned.settings).toBe(before)
   })
 
   test('warn and record actions do not pause', () => {
@@ -94,6 +94,10 @@ describe('planning a call', () => {
     expect(wouldPause(settings('active', 'command rm -rf'), DISARMED, bash('ls'))).toBe(false)
     expect(wouldPause(settings('observe', 'command rm -rf'), DISARMED, bash('rm -rf build'))).toBe(false)
     expect(wouldPause(undefined, undefined, bash('rm -rf build'))).toBe(false)
+    // The snapshot predates the call: it is counted, so a rule at its threshold's eve holds it.
+    const eve = settings('active', 'tool Bash --after 2')
+    expect(wouldPause({ ...eve, breakpoints: eve.breakpoints.map(bp => ({ ...bp, hitCount: 1 })) }, DISARMED, bash('ls'))).toBe(true)
+    expect(wouldPause(eve, DISARMED, bash('ls'))).toBe(false)
   })
 })
 

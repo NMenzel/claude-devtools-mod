@@ -1,13 +1,15 @@
 // The bounded timeline and its exports: a ring buffer of trace events, a
 // versioned JSON export with a validator, and a readable Markdown report.
 
-import type { Breakpoint, Certainty, DevtoolsMode, DevtoolsStats, ErrorGroup, LensRecord, TraceEvent, TraceOutcome, TraceStatus } from '../../types'
+import type { Breakpoint, Certainty, Denial, DevtoolsMode, DevtoolsStats, ErrorGroup, LensRecord, PermissionsSnapshot, TraceEvent, TraceOutcome, TraceStatus } from '../../types'
 import { describeBreakpoint } from './breakpoints.ts'
+import { asRecord } from './events.ts'
 import { lensReport } from './lens.ts'
+import { permissionsReport, UNREAD_PERMISSIONS } from './permissions.ts'
 
 export const TRACE_SCHEMA = 'claude-devtools.trace'
-/** 2: adds Error Lens (`errors`, `errorGroups`). */
-export const TRACE_SCHEMA_VERSION = 2
+/** 2: adds Error Lens (`errors`, `errorGroups`). 3: adds refused calls (`denials`) and the permission rules (`permissions`). */
+export const TRACE_SCHEMA_VERSION = 3
 /** Kept under $.fs.write's 4 MiB per file. */
 export const MAX_EXPORT_BYTES = 3_500_000
 
@@ -49,6 +51,10 @@ export type TraceExport = {
   errors: LensRecord[]
   /** Error Lens: repeated failures grouped by signature, most recent first. */
   errorGroups: ErrorGroup[]
+  /** Refused calls with who refused them, oldest first; also those refused before DevTools saw them, which have no event. */
+  denials: Denial[]
+  /** The permission rules, as last read from the settings files. */
+  permissions: PermissionsSnapshot
 }
 
 export function buildExport(args: {
@@ -63,6 +69,8 @@ export function buildExport(args: {
   events: readonly TraceEvent[]
   errors?: readonly LensRecord[]
   errorGroups?: readonly ErrorGroup[]
+  denials?: readonly Denial[]
+  permissions?: PermissionsSnapshot
 }): TraceExport {
   return {
     schema: TRACE_SCHEMA,
@@ -79,6 +87,8 @@ export function buildExport(args: {
     events: [...args.events],
     errors: [...(args.errors ?? [])],
     errorGroups: [...(args.errorGroups ?? [])],
+    denials: [...(args.denials ?? [])],
+    permissions: args.permissions ?? UNREAD_PERMISSIONS,
   }
 }
 
@@ -157,6 +167,11 @@ const OUTCOMES: readonly TraceOutcome[] = [
   'guard-failed',
 ]
 
+/** A time Date can show: a finite number of milliseconds within its range. */
+function isTime(value: unknown): boolean {
+  return typeof value === 'number' && Math.abs(value) <= 8.64e15
+}
+
 /** Checks a parsed export against the schema; returns the problems, empty when valid. */
 export function validateExport(value: unknown): string[] {
   const problems: string[] = []
@@ -169,23 +184,52 @@ export function validateExport(value: unknown): string[] {
   if (typeof x.redaction !== 'boolean') problems.push('redaction must be a boolean')
   if (!Array.isArray(x.breakpoints)) problems.push('breakpoints must be an array')
   if (!Array.isArray(x.errorGroups)) problems.push('errorGroups must be an array')
+  const permissions = asRecord(x.permissions)
+  const isRule = (row: unknown): boolean => ['behavior', 'rule', 'source'].every(key => typeof asRecord(row)[key] === 'string')
+  const isDirectory = (row: unknown): boolean => ['path', 'source'].every(key => typeof asRecord(row)[key] === 'string')
+  const mode = permissions.defaultMode
+  const isMode = mode === undefined || ['mode', 'source'].every(key => typeof asRecord(mode)[key] === 'string')
+  if (
+    typeof permissions.readAtMs !== 'number' ||
+    !isMode ||
+    !Array.isArray(permissions.rules) ||
+    !permissions.rules.every(isRule) ||
+    !Array.isArray(permissions.directories) ||
+    !permissions.directories.every(isDirectory) ||
+    !Array.isArray(permissions.errors) ||
+    !permissions.errors.every(error => typeof error === 'string')
+  ) {
+    problems.push('permissions must be an object with readAtMs, an optional defaultMode, and rules, directories and errors arrays')
+  }
+  if (!Array.isArray(x.denials)) problems.push('denials must be an array')
+  else
+    x.denials.forEach((raw, i) => {
+      const d = asRecord(raw)
+      const refusal = asRecord(d.refusal)
+      if (typeof d.id !== 'string' || d.id === '' || typeof d.tool !== 'string' || !isTime(d.atMs) || typeof d.inputSummary !== 'string') {
+        problems.push(`denials[${i}] needs an id, tool, a valid atMs and inputSummary`)
+      }
+      if (['by', 'reason', 'evidence'].some(key => typeof refusal[key] !== 'string') || !CERTAINTIES.includes(refusal.certainty as Certainty)) {
+        problems.push(`denials[${i}].refusal needs by, reason, evidence and a known certainty`)
+      }
+    })
   if (!Array.isArray(x.errors)) problems.push('errors must be an array')
   else
     x.errors.forEach((raw, i) => {
-      const r = raw as Record<string, unknown>
+      const r = asRecord(raw)
       const at = `errors[${i}]`
       if (typeof r.id !== 'string' || r.id === '') problems.push(`${at}.id must be a non-empty string`)
       if (typeof r.tool !== 'string' || r.tool === '') problems.push(`${at}.tool must be a non-empty string`)
       if (typeof r.category !== 'string' || r.category === '') problems.push(`${at}.category must be a non-empty string`)
       if (typeof r.message !== 'string') problems.push(`${at}.message must be a string`)
-      if (!Array.isArray(r.causes) || r.causes.some(c => !CERTAINTIES.includes((c as { certainty?: Certainty }).certainty as Certainty))) {
+      if (!Array.isArray(r.causes) || r.causes.some(c => !CERTAINTIES.includes(asRecord(c).certainty as Certainty))) {
         problems.push(`${at}.causes must be an array of causes with a known certainty`)
       }
       if (!Array.isArray(r.probes)) problems.push(`${at}.probes must be an array`)
     })
   if (!Array.isArray(x.events)) return [...problems, 'events must be an array']
   x.events.forEach((raw, i) => {
-    const e = raw as Record<string, unknown>
+    const e = asRecord(raw)
     const at = `events[${i}]`
     if (typeof e.id !== 'string' || e.id === '') problems.push(`${at}.id must be a non-empty string`)
     if (typeof e.tool !== 'string' || e.tool === '') problems.push(`${at}.tool must be a non-empty string`)
@@ -267,6 +311,12 @@ export function exportToMarkdown(trace: TraceExport): string {
       : []),
     // A fence inside quoted error text would end the block early.
     ...trace.errors.flatMap(record => ['```text', ...lensReport(record).map(line => line.replace(/`{3,}/g, "'''")), '```', '']),
+    '## Permissions',
+    '',
+    '```text',
+    ...permissionsReport(trace.permissions, trace.denials).map(line => line.replace(/`{3,}/g, "'''")),
+    '```',
+    '',
   ]
   return lines.join('\n')
 }

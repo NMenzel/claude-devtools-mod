@@ -1,25 +1,28 @@
 // The dashboard: every part of the debugger at a glance, in bordered panels
-// (paused calls, breakpoints, the call strip, errors, the timeline). Two columns when
+// (paused calls, breakpoints, the call strip, errors, refused calls, the timeline). Two columns when
 // docked wide, stacked when narrow, a three-line summary inline above the prompt.
 
 import type { RenderElement } from 'claude-code'
 
 import type { TraceEvent, TraceStatus } from '../../types'
 import { describeBreakpoint } from '../core/breakpoints.ts'
-import { truncate } from '../core/events.ts'
+import { clock, clockUtc, truncate } from '../core/events.ts'
+import { denialLabel, describeRefusal } from '../core/permissions.ts'
 import { formatDuration, statusIcon } from '../core/recorder.ts'
 import { CATEGORIES, familyOf, findCategoryRule } from '../core/suggest.ts'
 import type { PaneActions, PaneModel, Table } from './model.ts'
 import { C, LEGEND, NEXT_MODE, STATUS_COLOR } from './theme.ts'
 
-function clock(ms: number): string {
-  return new Date(ms).toISOString().slice(11, 19)
-}
+/** Rows the ERRORS and REFUSED panels show at most. */
+const SHORT_ROWS = 3
+
+/** Height of a short panel of `count` rows, borders and title included; 0 when it is not drawn. */
+const panelRows = (count: number): number => (count > 0 ? Math.min(SHORT_ROWS, count) + 3 : 0)
 
 export function timelineLine(event: TraceEvent, width: number): string {
   const agent = event.agentId === undefined ? '' : ' [sub]'
   const tool = event.tool.length > 12 ? `${event.tool.slice(0, 11)}…` : event.tool.padEnd(12)
-  const head = `${event.startedAt.slice(11, 19)} ${statusIcon(event.status)} ${tool} ${formatDuration(event.durationMs).padStart(6)} `
+  const head = `${clock(event.startedAtMs)} ${statusIcon(event.status)} ${tool} ${formatDuration(event.durationMs).padStart(6)} `
   const tail = `${event.simulated ? 'SIMULATED ' : ''}${event.inputSummary}${agent}`
   return truncate(head + tail, Math.max(20, width))
 }
@@ -89,7 +92,7 @@ function pausedPanel(els: Table, m: PaneModel, act: PaneActions, width: number):
         {truncate(`⏸ ${p.tool}  ${p.inputSummary}`, inner)}
       </Text>,
       <Text key={`pending-why-${p.id}`} dimColor wrap="truncate-end">
-        {truncate(`  ${p.reason}${p.agentId !== undefined ? ` · subagent ${p.agentId}` : ''} · since ${clock(p.sinceMs)}`, inner)}
+        {truncate(`  ${p.reason}${p.agentId !== undefined ? ` · subagent ${p.agentId}` : ''} · since ${clockUtc(p.sinceMs)}`, inner)}
       </Text>,
     )
   }
@@ -174,6 +177,25 @@ function errorsPanel(els: Table, m: PaneModel, act: PaneActions, width: number, 
   return panel(els, 'panel-errors', 'ERRORS', 'error', width, `${m.lens.length} kept · e: Error Lens`, rows)
 }
 
+/** The latest refused calls, each one press from its detail. */
+function refusedPanel(els: Table, m: PaneModel, act: PaneActions, width: number): RenderElement | null {
+  const { Button } = els
+  if (m.denials.length === 0) return null
+  const inner = width - 4
+  const rows = [...m.denials]
+    .reverse()
+    .slice(0, SHORT_ROWS)
+    .map(denial => (
+      <Button
+        key={`refused-${denial.id}`}
+        plain
+        label={truncate(`✗ ${denialLabel(denial)} · by ${describeRefusal(denial.refusal, m.permissions)}`, inner)}
+        onPress={() => act.openDenial(denial.id)}
+      />
+    ))
+  return panel(els, 'panel-refused', 'REFUSED', 'warning', width, `${m.denials.length} · a: Permissions`, rows)
+}
+
 function timelinePanel(els: Table, m: PaneModel, act: PaneActions, width: number, maxRows: number): RenderElement {
   const { Text, Button } = els
   const inner = width - 4
@@ -190,7 +212,7 @@ function timelinePanel(els: Table, m: PaneModel, act: PaneActions, width: number
             onPress={() => act.inspect(event.id)}
           />
         ))
-  return panel(els, 'panel-timeline', 'TIMELINE', C.timeline, width, `${m.trace.length} kept · t: all`, rows)
+  return panel(els, 'panel-timeline', 'TIMELINE', C.timeline, width, `UTC · ${m.trace.length} kept · t: all`, rows)
 }
 
 function actions(els: Table, m: PaneModel, act: PaneActions): RenderElement {
@@ -236,6 +258,8 @@ function mini(els: Table, m: PaneModel, act: PaneActions, width: number): Render
 export function dashboard(els: Table, m: PaneModel, act: PaneActions, width: number): RenderElement {
   const { Box } = els
   if (m.layout === 'mini') return mini(els, m, act, width)
+  // What the ERRORS and REFUSED panels take from the timeline; a panel not drawn takes nothing.
+  const taken = panelRows(m.options.errorLens === 'off' ? 0 : m.groups.length) + panelRows(m.denials.length)
   if (m.layout === 'wide') {
     const left = Math.floor((width - 1) / 2)
     const right = width - left - 1
@@ -248,8 +272,9 @@ export function dashboard(els: Table, m: PaneModel, act: PaneActions, width: num
             {callsPanel(els, m, left)}
           </Box>
           <Box flexDirection="column" width={right}>
-            {errorsPanel(els, m, act, right, 3)}
-            {timelinePanel(els, m, act, right, Math.max(5, m.rows - 8 - (m.groups.length > 0 ? Math.min(3, m.groups.length) + 3 : 0)))}
+            {errorsPanel(els, m, act, right, SHORT_ROWS)}
+            {refusedPanel(els, m, act, right)}
+            {timelinePanel(els, m, act, right, Math.max(5, m.rows - 8 - taken))}
           </Box>
         </Box>
         {actions(els, m, act)}
@@ -259,10 +284,11 @@ export function dashboard(els: Table, m: PaneModel, act: PaneActions, width: num
   return (
     <Box flexDirection="column">
       {pausedPanel(els, m, act, width)}
-      {errorsPanel(els, m, act, width, 3)}
+      {errorsPanel(els, m, act, width, SHORT_ROWS)}
+      {refusedPanel(els, m, act, width)}
       {breakpointsPanel(els, m, act, width, 5)}
       {callsPanel(els, m, width)}
-      {timelinePanel(els, m, act, width, Math.max(3, Math.min(8, m.rows - 22)))}
+      {timelinePanel(els, m, act, width, Math.max(3, Math.min(8, m.rows - 22 - taken)))}
       {actions(els, m, act)}
     </Box>
   )
