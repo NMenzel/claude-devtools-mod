@@ -102,9 +102,9 @@ Check that it loaded: run `/plugin` and look for `devtools` in the
 To update: `claude plugin update devtools@claude-devtools-mod`.
 To remove: `claude plugin uninstall devtools@claude-devtools-mod`.
 
-### Install with an AI agent
+### Install with Claude
 
-Paste this into Claude Code, or any coding agent that can run shell commands:
+Paste this into Claude Code:
 
 ```text
 Install the Claude DevTools mod for Claude Code from
